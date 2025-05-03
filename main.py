@@ -9,6 +9,7 @@ from urllib.parse import quote # Import the quote function for URL-encoding
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles # <--- Import StaticFiles
 
 # --- Configuration ---
 # Configure logging
@@ -24,6 +25,9 @@ app = FastAPI()
 # Setup Jinja2 templates
 templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
+
+static_dir = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # --- Helper Functions ---
 
