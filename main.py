@@ -133,10 +133,13 @@ async def stream_video_content(
     finally:
         # 8. Ensure no rogue yt-dlp is left running.
         if process.returncode is None:  # still running?
+            logger.info("Finally block: yt-dlp process still running, attempting to kill")
             try:
                 process.kill()
-            except Exception:
-                pass
+                logger.info("Finally block: yt-dlp process killed successfully")
+            except Exception as e:
+                logger.error(f"Finally block: error killing yt-dlp process: {e}")
+
 
 
 
