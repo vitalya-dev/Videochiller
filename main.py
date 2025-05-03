@@ -71,58 +71,73 @@ async def get_video_info(url: str):
         raise HTTPException(status_code=500, detail="Error decoding video information (non-UTF8).")
 
 
-async def stream_video_content(url: str, format_code: str | None = None):
-    """Async generator to stream video content from yt-dlp."""
-    
-    # Select format: Prefer mp4, fall back to best available. Adjust as needed.
-    # You could pass a specific format_code obtained from get_video_info if desired.
-    format_selection = format_code if format_code else "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-    
+async def stream_video_content(
+    request: Request,
+    url: str,
+    format_code: str | None = None
+):
+    """Async generator to stream video content from yt-dlp, with client-cancel support."""
+    # 1. Select format: prefer mp4, else best available.
+    format_selection = (
+        format_code
+        if format_code
+        else "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+    )
+
+    # 2. Build yt-dlp args to pipe output to stdout.
     args = [
         "-f", format_selection,
-        "-o", "-",  # Output to standard output
-        "--", url    # Treat URL as positional argument
+        "-o", "-",        # write to stdout
+        "--", url         # positional URL
     ]
-    
+
+    # 3. Launch the subprocess.
     process = await run_yt_dlp_command(args)
 
-    # Check if the process started successfully before streaming
-    # A small initial delay allows checking stderr for immediate errors
     try:
-        await asyncio.wait_for(process.stderr.read(1), timeout=1.0) 
-        # If we read something or timeout happens without error, stderr might contain info/warnings later
-    except asyncio.TimeoutError:
-        # No immediate error, likely starting download.
-        pass 
-        
-    # Stream stdout
-    chunk_size = 8192 # Read in 8KB chunks
-    while True:
-        if process.stdout is None:
-             logger.warning("yt-dlp stdout stream is None. Process might have exited early.")
-             break # Safety check
-             
-        chunk = await process.stdout.read(chunk_size)
-        if not chunk:
-            break # End of stream
-        yield chunk
+        # 4. Give yt-dlp a moment to emit any immediate errors.
+        try:
+            await asyncio.wait_for(process.stderr.read(1), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass  # likely no immediate errors
 
-    # Wait for the process to finish and check for errors
-    await process.wait() # Same as await process.communicate() if stdout/stderr already consumed
+        # 5. Stream stdout in chunks, watching for disconnect.
+        chunk_size = 8 * 1024  # 8 KB
+        while True:
+            # 5a. If client has gone away, kill yt-dlp and stop.
+            if await request.is_disconnected():
+                logger.info("Client disconnected—terminating yt-dlp process")
+                process.kill()
+                break
 
-    if process.returncode != 0:
-        # Try reading any remaining stderr after streaming finished
-        stderr_output = b""
-        if process.stderr:
-           stderr_output = await process.stderr.read() 
-        error_message = stderr_output.decode().strip()
-        logger.error(f"yt-dlp streaming error (return code {process.returncode}): {error_message}")
-        # Note: We can't raise HTTPException here as headers are already sent.
-        # The client will likely see a prematurely terminated download.
-        print(f"yt-dlp streaming error (return code {process.returncode}): {error_message}") # Log to console
-        # Consider implementing a mechanism to signal the error to the client if possible,
-        # e.g., by appending an error message to the stream (if the client expects it)
-        # or logging it prominently for server-side debugging.
+            if process.stdout is None:
+                logger.warning("yt-dlp stdout is None; stopping stream")
+                break
+
+            chunk = await process.stdout.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+        # 6. Wait for process to exit cleanly (or with error).
+        await process.wait()
+
+        # 7. If yt-dlp errored after streaming, log the stderr.
+        if process.returncode != 0:
+            stderr_output = b""
+            if process.stderr:
+                stderr_output = await process.stderr.read()
+            err = stderr_output.decode(errors="ignore").strip()
+            logger.error(f"yt-dlp exited {process.returncode}: {err}")
+
+    finally:
+        # 8. Ensure no rogue yt-dlp is left running.
+        if process.returncode is None:  # still running?
+            try:
+                process.kill()
+            except Exception:
+                pass
+
 
 
 # --- FastAPI Endpoints ---
@@ -206,7 +221,7 @@ async def download_video(request: Request, url: str = Form(...), quality: str | 
 
         # Return Streaming Response
         return StreamingResponse(
-            stream_video_content(url, format_code), # Pass the original URL here
+            stream_video_content(request, url, format_code), # Pass the original URL here
             media_type=media_type,
             headers=headers
         )
