@@ -134,7 +134,7 @@ async def read_root(request: Request):
 
 
 @app.post("/download")
-async def download_video(request: Request, url: str = Form(...)):
+async def download_video(request: Request, url: str = Form(...), quality: str | None = Form(None)):
     """Handles the download request, gets info, and streams the video."""
     if not url:
         raise HTTPException(status_code=400, detail="URL parameter is missing.")
@@ -198,9 +198,15 @@ async def download_video(request: Request, url: str = Form(...)):
 
         logger.info(f"Starting video stream for '{original_filename}'...")
 
+        format_code = None
+        if quality:
+            format_code = (
+                f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]"
+            )
+
         # Return Streaming Response
         return StreamingResponse(
-            stream_video_content(url), # Pass the original URL here
+            stream_video_content(url, format_code), # Pass the original URL here
             media_type=media_type,
             headers=headers
         )

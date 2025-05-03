@@ -52,7 +52,7 @@
       color: #555;
       text-align: left;
     }
-
+    select,
     input[type="url"] {
       width: 100%;
       padding: 10px;
@@ -106,6 +106,13 @@
         placeholder="например, https://www.youtube.com/watch?v=..."
         required
       >
+      <label for="quality">Качество видео</label>
+      <select id="quality" name="quality">
+        <option value="">Авто (лучшее доступное)</option>
+        <option value="360">360p</option>
+        <option value="720">720p</option>
+        <option value="1080">1080p</option>
+      </select>
       <input type="submit" value="Скачать видео">
     </form>
 
