@@ -88,6 +88,8 @@ async def stream_video_content(
     args = [
         "-f", format_selection,
         "-o", "-",        # write to stdout
+        "--external-downloader", "aria2c",
+        "--external-downloader-args", "-x 16 -s 16 -k 1M",
         "--", url         # positional URL
     ]
 
