@@ -81,7 +81,7 @@ async def stream_video_content(
     format_selection = (
         format_code
         if format_code
-        else "bestvideo[ext=mp4]/best[ext=mp4]/best"
+        else "best"
     )
 
     # 2. Build yt-dlp args to pipe output to stdout.
@@ -221,7 +221,7 @@ async def download_video(request: Request, url: str = Form(...), quality: str | 
         format_code = None
         if quality:
             format_code = (
-                f"bestvideo[height<={quality}]/best[height<={quality}]"
+                f"best[height<={quality}]"
             )
 
         # Return Streaming Response
