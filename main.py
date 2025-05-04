@@ -102,13 +102,13 @@ async def stream_video_content(
             pass  # likely no immediate errors
 
         # 5. Stream stdout in chunks, watching for disconnect.
-        chunk_size = 8 * 1024  # 8 KB
+        chunk_size = 8 * 1024 # 8 KB
         while True:
             # 5a. If client has gone away, kill yt-dlp and stop.
-            if await request.is_disconnected():
-                logger.info("Client disconnected—terminating yt-dlp process")
-                process.kill()
-                break
+            # if await request.is_disconnected():
+            #     logger.info("Client disconnected—terminating yt-dlp process")
+            #     process.kill()
+            #     break
 
             if process.stdout is None:
                 logger.warning("yt-dlp stdout is None; stopping stream")
