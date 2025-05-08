@@ -4,6 +4,7 @@ import shlex  # For safe command splitting (optional but good practice)
 import logging
 from pathlib import Path
 from urllib.parse import quote # Import the quote function for URL-encoding
+import sys
 
 
 from fastapi import FastAPI, Request, Form, HTTPException
@@ -13,7 +14,7 @@ from fastapi.staticfiles import StaticFiles # <--- Import StaticFiles
 
 # --- Configuration ---
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Path to yt-dlp executable (adjust if not in PATH)
@@ -76,71 +77,53 @@ async def stream_video_content(
     url: str,
     format_code: str | None = None
 ):
+    logger.debug("stream_video_content start: url=%s, format_code=%s", url, format_code)
     """Async generator to stream video content from yt-dlp, with client-cancel support."""
     # 1. Select format: prefer mp4, else best available.
-    format_selection = (
+    # 1) Decide video-only / audio-only format strings
+    video_fmt = (
         format_code
-        if format_code
-        else "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        if False #debug
+        else "bestvideo[ext=webm]"
+    )
+    audio_fmt = (
+        format_code
+        if False #debug
+        else "bestaudio[ext=webm]"
+    )
+    logger.debug("Using formats: video=%s, audio=%s", video_fmt, audio_fmt)
+
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,  # ensures same Python interpreter
+        "test.py",
+        url,
+        stdout=asyncio.subprocess.PIPE,
     )
 
-    # 2. Build yt-dlp args to pipe output to stdout.
-    args = [
-        "-f", format_selection,
-        "-o", "-",        # write to stdout
-        "--external-downloader", "ffmpeg",
-        "--external-downloader-args", "-c:v copy -c:a copy",
-        "--", url         # positional URL
-    ]
-
-    # 3. Launch the subprocess.
-    process = await run_yt_dlp_command(args)
-
     try:
-        # 4. Give yt-dlp a moment to emit any immediate errors.
-        try:
-            await asyncio.wait_for(process.stderr.read(1), timeout=1.0)
-        except asyncio.TimeoutError:
-            pass  # likely no immediate errors
-
-        # 5. Stream stdout in chunks, watching for disconnect.
-        chunk_size = 8 * 1024 # 8 KB
+        # 4) Stream ffmpeg stdout in chunks, watching for client disconnect
+        chunk_size = 8 * 1024
         while True:
-            # 5a. If client has gone away, kill yt-dlp and stop.
-            # if await request.is_disconnected():
-            #     logger.info("Client disconnected—terminating yt-dlp process")
-            #     process.kill()
-            #     break
-
-            if process.stdout is None:
-                logger.warning("yt-dlp stdout is None; stopping stream")
+            if await request.is_disconnected():
+                proc.kill()
                 break
 
-            chunk = await process.stdout.read(chunk_size)
+            chunk = await proc.stdout.read(chunk_size)
             if not chunk:
                 break
             yield chunk
 
-        # 6. Wait for process to exit cleanly (or with error).
-        await process.wait()
+        # 5) Wait for ffmpeg → then for yt-dlp procs
+        rc = await proc.wait()
 
-        # 7. If yt-dlp errored after streaming, log the stderr.
-        if process.returncode != 0:
-            stderr_output = b""
-            if process.stderr:
-                stderr_output = await process.stderr.read()
-            err = stderr_output.decode(errors="ignore").strip()
-            logger.error(f"yt-dlp exited {process.returncode}: {err}")
+        if rc != 0:
+            raise RuntimeError(f"ffmpeg exited {rc}")
 
     finally:
-        # 8. Ensure no rogue yt-dlp is left running.
-        if process.returncode is None:  # still running?
-            logger.info("Finally block: yt-dlp process still running, attempting to kill")
-            try:
-                process.kill()
-                logger.info("Finally block: yt-dlp process killed successfully")
-            except Exception as e:
-                logger.error(f"Finally block: error killing yt-dlp process: {e}")
+        if proc.returncode is None:
+            proc.kill()
+
+
 
 
 
@@ -221,7 +204,7 @@ async def download_video(request: Request, url: str = Form(...), quality: str | 
         format_code = None
         if quality:
             format_code = (
-                f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]"
+                f"bestvideo[height<={quality},ext=webm]+bestaudio/best[height<={quality},ext=webm]"
 
             )
 
@@ -232,9 +215,6 @@ async def download_video(request: Request, url: str = Form(...), quality: str | 
             headers=headers
         )
 
-    except HTTPException as e:
-        logger.warning(f"HTTP Exception during download request: {e.detail}")
-        raise e
     except Exception as e:
         logger.exception(f"Unexpected error processing download for {url}: {e}")
         raise HTTPException(status_code=500, detail=f"An internal server error occurred: {str(e)}")
