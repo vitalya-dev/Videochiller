@@ -89,7 +89,7 @@ async def stream_video_content(
         "-f", format_selection,
         "-o", "-",        # write to stdout
         "--external-downloader", "ffmpeg",
-        "--external-downloader-args", "-c:v copy -c:a copy"
+        "--external-downloader-args", "-c:v copy -c:a copy",
         "--", url         # positional URL
     ]
 
