@@ -86,10 +86,12 @@ async def stream_video_content(
 
     # 2. Build yt-dlp args to pipe output to stdout.
     args = [
+        "-t", "mp4",
         "-f", format_selection,
         "-o", "-",        # write to stdout
-        "--external-downloader", "aria2c",
-        "--external-downloader-args", "-x 16 -s 16 -k 1M",
+        "--external-downloader", "ffmpeg",
+        "-c:v",  "copy", "-c:a", "copy",
+        "-movflags ", "frag_keyframe+empty_moov",
         "--", url         # positional URL
     ]
 
