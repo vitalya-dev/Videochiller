@@ -1,4 +1,5 @@
 import asyncio
+from asyncio.subprocess import DEVNULL
 import json
 import shlex  # For safe command splitting (optional but good practice)
 import logging
@@ -113,6 +114,7 @@ async def stream_video_content(
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
+        stderr=DEVNULL
     )
 
     try:
