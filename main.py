@@ -76,7 +76,8 @@ async def get_video_info(url: str):
 async def stream_video_content(
     request: Request,
     url: str,
-    quality_pref: str | None = None  # e.g., "720" for 720p, or None for default
+    quality_pref: str | None = None,  # e.g., "720" for 720p, or None for default
+    cookie_file_path: str | None = None
 ):
     """
     Async generator to stream video content by calling ytdl_pipe_merge.py.
@@ -107,6 +108,9 @@ async def stream_video_content(
         )
         command.extend(["--video_format", video_format_arg])
         command.extend(["--audio_format", audio_format_arg])
+    if cookie_file_path:
+        # We will need to add an argument like "--cookie_file" to ytdl_pipe_merge.py
+        command.extend(["--cookie_file", cookie_file_path])
     # If quality_pref is None, ytdl_pipe_merge.py will use its own default formats.
 
     logger.info(f"Executing ytdl_pipe_merge.py with command: {' '.join(shlex.quote(c) for c in command)}")
@@ -114,7 +118,7 @@ async def stream_video_content(
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
-        stderr=DEVNULL
+        #stderr=DEVNULL
     )
 
     try:
@@ -193,7 +197,11 @@ async def read_root(request: Request):
 
 
 @app.post("/download")
-async def download_video(request: Request, url: str = Form(...), quality: str | None = Form(None)):
+async def download_video(
+    request: Request,
+    url: str = Form(...),
+    quality: str | None = Form(None),
+):
     """Handles the download request, gets info, and streams the video (always as WebM)."""
     if not url:
         raise HTTPException(status_code=400, detail="URL parameter is missing.")
@@ -239,7 +247,7 @@ async def download_video(request: Request, url: str = Form(...), quality: str | 
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
-            stream_video_content(request, url, quality),
+            stream_video_content(request, url, quality, "cookies.Gemini.txt"),
             media_type=media_type, # Should be "video/webm"
             headers=headers
         )
