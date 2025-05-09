@@ -47,7 +47,7 @@ async def run_yt_dlp_command(args):
 
 async def get_video_info(url: str):
     """Gets video metadata using yt-dlp --dump-json."""
-    args = ["--dump-json", "--", url] # '--' ensures URL is treated as positional arg
+    args = ["--dump-json", "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
     process = await run_yt_dlp_command(args)
     stdout, stderr = await process.communicate()
 

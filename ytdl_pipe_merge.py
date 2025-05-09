@@ -26,12 +26,12 @@ def download_video(url, video_format, audio_format, output_filename=None):
         # 1) Launch yt-dlp downloaders for video & audio
         #    -o - pipes output to stdout for ffmpeg. stderr goes to console.
         video_process = subprocess.Popen(
-            ["yt-dlp", "-f", video_format, "-o", "-", "--", url],
+            ["yt-dlp", "--no-playlist", "-f", video_format, "-o", "-", "--", url],
             stdout=subprocess.PIPE,
             # stderr is not piped, will go to console
         )
         audio_process = subprocess.Popen(
-            ["yt-dlp", "-f", audio_format, "-o", "-", "--", url],
+            ["yt-dlp", "--no-playlist", "-f", audio_format, "-o", "-", "--", url],
             stdout=subprocess.PIPE,
             # stderr is not piped, will go to console
         )
