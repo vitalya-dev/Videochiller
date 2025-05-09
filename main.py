@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from urllib.parse import quote # Import the quote function for URL-encoding
 import sys
+import os
 
 
 from fastapi import FastAPI, Request, Form, HTTPException
@@ -20,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 # Path to yt-dlp executable (adjust if not in PATH)
 YT_DLP_PATH = "yt-dlp"
+
+COOKIE_FILE = os.getenv("YT_DLP_COOKIE_FILE", "cookies.Gemini.txt")
 
 # --- FastAPI App Setup ---
 app = FastAPI()
@@ -47,7 +50,7 @@ async def run_yt_dlp_command(args):
 
 async def get_video_info(url: str):
     """Gets video metadata using yt-dlp --dump-json."""
-    args = ["--dump-json", "--cookies", "cookies.Gemini.txt", "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
+    args = ["--dump-json", "--cookies", COOKIE_FILE, "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
     process = await run_yt_dlp_command(args)
     stdout, stderr = await process.communicate()
 
@@ -118,7 +121,7 @@ async def stream_video_content(
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
-        #stderr=DEVNULL
+        stderr=DEVNULL
     )
 
     try:
@@ -247,7 +250,7 @@ async def download_video(
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
-            stream_video_content(request, url, quality, "cookies.Gemini.txt"),
+            stream_video_content(request, url, quality, COOKIE_FILE),
             media_type=media_type, # Should be "video/webm"
             headers=headers
         )
