@@ -75,53 +75,107 @@ async def get_video_info(url: str):
 async def stream_video_content(
     request: Request,
     url: str,
-    format_code: str | None = None
+    quality_pref: str | None = None  # e.g., "720" for 720p, or None for default
 ):
-    logger.debug("stream_video_content start: url=%s, format_code=%s", url, format_code)
-    """Async generator to stream video content from yt-dlp, with client-cancel support."""
-    # 1. Select format: prefer mp4, else best available.
-    # 1) Decide video-only / audio-only format strings
-    video_fmt = (
-        format_code
-        if False #debug
-        else "bestvideo[ext=webm]"
-    )
-    audio_fmt = (
-        format_code
-        if False #debug
-        else "bestaudio[ext=webm]"
-    )
-    logger.debug("Using formats: video=%s, audio=%s", video_fmt, audio_fmt)
+    """
+    Async generator to stream video content by calling ytdl_pipe_merge.py.
+    Supports client disconnect handling and custom quality preferences.
+    """
+    logger.debug("stream_video_content start: url=%s, quality_pref=%s", url, quality_pref)
 
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,  # ensures same Python interpreter
-        "test.py",
-        url,
+    command = [
+        sys.executable,  # Use the same Python interpreter that runs FastAPI
+        str(Path(__file__).parent / "ytdl_pipe_merge.py"), # Path to the script
+        url,  # First argument to ytdl_pipe_merge.py is the URL
+    ]
+
+    if quality_pref:
+        # Construct format strings for yt-dlp that ytdl_pipe_merge.py will use.
+        # Prioritize WebM as ytdl_pipe_merge.py outputs WebM via ffmpeg.
+        # Fallbacks ensure that a format is found if the specific quality/ext is not available.
+        # (protocol!=m3u8) avoids HLS streams which might be slower for yt-dlp to pipe.
+        video_format_arg = (
+            f"(bestvideo[height<={quality_pref}][ext=webm][protocol!=m3u8]/"
+            f"bestvideo[height<={quality_pref}][ext=mp4][protocol!=m3u8]/"
+            f"bestvideo[height<={quality_pref}][protocol!=m3u8]/"
+            f"bestvideo[ext=webm][protocol!=m3u8]/bestvideo[protocol!=m3u8])"
+        )
+        audio_format_arg = (
+            "(bestaudio[ext=webm][protocol!=m3u8]/"
+            "bestaudio[ext=m4a][protocol!=m3u8]/bestaudio[protocol!=m3u8])"
+        )
+        command.extend(["--video_format", video_format_arg])
+        command.extend(["--audio_format", audio_format_arg])
+    # If quality_pref is None, ytdl_pipe_merge.py will use its own default formats.
+
+    logger.info(f"Executing ytdl_pipe_merge.py with command: {' '.join(shlex.quote(c) for c in command)}")
+
+    process = await asyncio.create_subprocess_exec(
+        *command,
         stdout=asyncio.subprocess.PIPE,
     )
 
     try:
-        # 4) Stream ffmpeg stdout in chunks, watching for client disconnect
-        chunk_size = 8 * 1024
+        chunk_size = 8 * 1024  # 8KB
         while True:
             if await request.is_disconnected():
-                proc.kill()
+                logger.warning(f"Client disconnected for URL {url}. Terminating ytdl_pipe_merge.py process.")
+                if process.returncode is None:  # If process is still running
+                    try:
+                        process.terminate()  # Politely ask to terminate (SIGTERM)
+                        await asyncio.wait_for(process.wait(), timeout=5.0)
+                        logger.info("ytdl_pipe_merge.py terminated gracefully after client disconnect.")
+                    except asyncio.TimeoutError:
+                        logger.warning("ytdl_pipe_merge.py did not terminate in 5s. Killing (SIGKILL).")
+                        process.kill()
+                        await process.wait() # Ensure it's reaped
+                        logger.info("ytdl_pipe_merge.py killed.")
+                    except Exception as e:
+                        logger.error(f"Error during process termination on disconnect: {e}")
+                        if process.returncode is None: process.kill(); await process.wait()
                 break
 
-            chunk = await proc.stdout.read(chunk_size)
-            if not chunk:
+            if process.stdout:
+                chunk = await process.stdout.read(chunk_size)
+                if not chunk:
+                    logger.debug(f"ytdl_pipe_merge.py stdout EOF for URL {url}.")
+                    break
+                yield chunk
+            else: # Should not happen if Popen succeeded with stdout=PIPE
+                logger.error("ytdl_pipe_merge.py stdout is None, breaking stream.")
                 break
-            yield chunk
 
-        # 5) Wait for ffmpeg → then for yt-dlp procs
-        rc = await proc.wait()
 
-        if rc != 0:
-            raise RuntimeError(f"ffmpeg exited {rc}")
+        return_code = await process.wait()
+        if return_code != 0:
+            # stderr should have already been logged by the log_stderr task
+            logger.error(f"ytdl_pipe_merge.py exited with error code {return_code} for URL {url}.")
+            # Raising an error here might be too late if data has been streamed.
+            # The client will receive a truncated stream.
+            # For now, we rely on the logged error.
 
+    except Exception as e:
+        logger.exception(f"Error during streaming from ytdl_pipe_merge.py for URL {url}: {e}")
+        if process.returncode is None:
+            logger.info(f"Killing ytdl_pipe_merge.py due to exception: {e}")
+            process.kill() # Kill immediately on unexpected error
+            await process.wait()
+        raise # Re-raise the exception to be handled by FastAPI
     finally:
-        if proc.returncode is None:
-            proc.kill()
+        # Final cleanup: ensure process is terminated and stderr logger is done.
+        if process.returncode is None:
+            logger.warning(f"ytdl_pipe_merge.py process (pid {process.pid}) still running in finally block for URL {url}. Terminating.")
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"Final kill for ytdl_pipe_merge.py (pid {process.pid}) for URL {url}.")
+                process.kill()
+                await process.wait() # Ensure kill is processed
+            except Exception as e:
+                logger.error(f"Error during final termination of process {process.pid}: {e}")
+                if process.returncode is None: process.kill(); await process.wait()
+        logger.debug("stream_video_content finished for URL: %s", url)
 
 
 
@@ -138,83 +192,58 @@ async def read_root(request: Request):
 
 @app.post("/download")
 async def download_video(request: Request, url: str = Form(...), quality: str | None = Form(None)):
-    """Handles the download request, gets info, and streams the video."""
+    """Handles the download request, gets info, and streams the video (always as WebM)."""
     if not url:
         raise HTTPException(status_code=400, detail="URL parameter is missing.")
 
-    logger.info(f"Received download request for URL: {url}")
+    logger.info(f"Received download request for URL: {url}, Quality: {quality}")
 
     try:
         logger.info(f"Fetching video info for: {url}")
-        info = await get_video_info(url)
+        info = await get_video_info(url) # Get original video info for title, etc.
 
-        # Extract title and extension
+        # --- Output is always WebM when using ytdl_pipe_merge.py ---
+        output_ext = "webm"
+        media_type = "video/webm"
+        # ---
+
         title = info.get('title', 'video')
-        ext = info.get('ext', 'mp4')
-
-        # Create the desired filename (potentially with Unicode characters)
-        # Basic sanitization: remove characters problematic for filenames, replace quote types
+        # Basic sanitization for filename
         unsafe_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
         safe_title = title
         for char in unsafe_chars:
             safe_title = safe_title.replace(char, '_')
-        safe_title = safe_title.replace("'", "_").replace('"', '_').strip() # Replace quotes too
+        safe_title = safe_title.replace("'", "_").replace('"', '_').strip()
 
-        original_filename = f"{safe_title}.{ext}" if safe_title else f"video.{ext}"
+        # Ensure filename has .webm extension
+        original_filename = f"{safe_title}.{output_ext}" if safe_title else f"video.{output_ext}"
 
-
-        # --- Correctly encode filename for Content-Disposition ---
-        # Percent-encode the filename using UTF-8. Safe='' ensures chars like '/' are encoded if present.
+        # Percent-encode the filename for Content-Disposition header
         encoded_filename = quote(original_filename, safe='')
-
-        # Create a simple ASCII-only fallback filename for the 'filename=' parameter
-        # Replace non-ASCII characters with underscores (_)
-        ascii_fallback_filename = "".join(c if ord(c) < 128 else '_' for c in original_filename)
-        # Ensure fallback doesn't have quotes which break the header value itself
-        ascii_fallback_filename = ascii_fallback_filename.replace('"', '_')
-
-        # Construct the Content-Disposition header value according to RFC 6266
-        # Provides both the standard 'filename*' for modern browsers
-        # and a simple ASCII 'filename=' as a fallback.
+        ascii_fallback_filename = "".join(c if ord(c) < 128 else '_' for c in original_filename).replace('"', '_')
         content_disposition = (
             f'attachment; filename="{ascii_fallback_filename}"; '
             f"filename*=UTF-8''{encoded_filename}"
         )
-        # --- End filename encoding ---
-
-        # Determine media type
-        media_type_map = {
-            "mp4": "video/mp4", "webm": "video/webm", "mkv": "video/x-matroska",
-            "mp3": "audio/mpeg", "m4a": "audio/mp4", "ogg": "audio/ogg",
-            "opus": "audio/opus", "flv": "video/x-flv", "avi": "video/x-msvideo",
-        }
-        media_type = media_type_map.get(ext, "application/octet-stream")
 
         logger.info(f"Determined filename: '{original_filename}', Fallback: '{ascii_fallback_filename}', Media type: '{media_type}'")
         logger.info(f"Content-Disposition header: {content_disposition}")
 
-        # Prepare Headers for Streaming Response
         headers = {
             'Content-Disposition': content_disposition
-            # 'Content-Type' is handled by StreamingResponse's media_type parameter
         }
 
-        logger.info(f"Starting video stream for '{original_filename}'...")
+        logger.info(f"Starting video stream for '{original_filename}' (as WebM)...")
 
-        format_code = None
-        if quality:
-            format_code = (
-                f"bestvideo[height<={quality},ext=webm]+bestaudio/best[height<={quality},ext=webm]"
-
-            )
-
-        # Return Streaming Response
+        # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
-            stream_video_content(request, url, format_code), # Pass the original URL here
-            media_type=media_type,
+            stream_video_content(request, url, quality),
+            media_type=media_type, # Should be "video/webm"
             headers=headers
         )
 
+    except HTTPException: # Re-raise HTTPExceptions directly
+        raise
     except Exception as e:
         logger.exception(f"Unexpected error processing download for {url}: {e}")
         raise HTTPException(status_code=500, detail=f"An internal server error occurred: {str(e)}")
