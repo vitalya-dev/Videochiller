@@ -9,7 +9,8 @@ import sys
 import os
 
 
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles # <--- Import StaticFiles
@@ -18,6 +19,10 @@ from fastapi.staticfiles import StaticFiles # <--- Import StaticFiles
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Dictionary to store active WebSocket connections
+# Key: unique_id (str), Value: WebSocket object
+active_connections: dict[str, WebSocket] = {}
 
 # Path to yt-dlp executable (adjust if not in PATH)
 YT_DLP_PATH = "yt-dlp"
@@ -192,6 +197,28 @@ async def stream_video_content(
 
 
 # --- FastAPI Endpoints ---
+@app.websocket("/ws/{unique_id}")
+async def websocket_endpoint(websocket: WebSocket, unique_id: str):
+    await websocket.accept()
+    active_connections[unique_id] = websocket # Add to dictionary
+    logger.info(f"WebSocket connection established with ID: {unique_id}")
+    try:
+        while True:
+            logger.info(f"application_state: {websocket.application_state}")
+            # For now, we are not expecting any messages or sending any.
+            # This loop will keep the connection alive.
+            # You can add logic here to receive/send messages in the future.
+            await asyncio.sleep(1) # Keep the connection open and check for disconnect
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket connection closed for ID: {unique_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for ID {unique_id}: {e}")
+        # Consider closing the websocket with an error code if appropriate
+        await websocket.close(code=1011) # Internal Error (example)
+    finally:
+        if unique_id in active_connections:
+            del active_connections[unique_id]
+            logger.info(f"WebSocket connection for ID: {unique_id} removed from active connections. Total active: {len(active_connections)}")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):

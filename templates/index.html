@@ -128,6 +128,44 @@
       document.getElementById('loading-message').style.display = 'block';
       document.getElementById('error-message').textContent = '';
     }
+    // WebSocket connection
+    window.addEventListener('load', () => {
+      // Generate a simple unique ID (for demonstration purposes)
+      const uniqueId = 'client-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+      console.log('Generated Client ID for WebSocket:', uniqueId);
+
+      // Determine WebSocket protocol (ws or wss)
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${window.location.host}/ws/${uniqueId}`;
+      console.log('Attempting to connect to WebSocket:', wsUrl);
+
+      const socket = new WebSocket(wsUrl);
+
+      socket.onopen = function(event) {
+        console.log('WebSocket connection opened:', event);
+        // You could send a message here if needed:
+        // socket.send(JSON.stringify({ message: 'Hello from client ' + uniqueId }));
+      };
+
+      socket.onmessage = function(event) {
+        console.log('WebSocket message received:', event.data);
+        // Handle incoming messages here
+      };
+
+      socket.onerror = function(event) {
+        console.error('WebSocket error observed:', event);
+      };
+
+      socket.onclose = function(event) {
+        if (event.wasClean) {
+          console.log(`WebSocket connection closed cleanly, code=${event.code} reason=${event.reason}`);
+        } else {
+          // e.g. server process killed or network down
+          // event.code is usually 1006 in this case
+          console.warn('WebSocket connection died');
+        }
+      };
+    });
   </script>
 </body>
 </html>
