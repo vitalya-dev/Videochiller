@@ -50,7 +50,7 @@ async def run_yt_dlp_command(args):
 
 async def get_video_info(url: str):
     """Gets video metadata using yt-dlp --dump-json."""
-    args = ["--dump-json", "--cookies", COOKIE_FILE, "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
+    args = ["--dump-json", "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
     process = await run_yt_dlp_command(args)
     stdout, stderr = await process.communicate()
 
@@ -250,7 +250,7 @@ async def download_video(
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
-            stream_video_content(request, url, quality, COOKIE_FILE),
+            stream_video_content(request, url, quality),
             media_type=media_type, # Should be "video/webm"
             headers=headers
         )
