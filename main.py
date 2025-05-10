@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Path to yt-dlp executable (adjust if not in PATH)
 YT_DLP_PATH = "yt-dlp"
 
-COOKIE_FILE = os.getenv("YT_DLP_COOKIE_FILE", "cookies.Gemini.txt")
+COOKIE_FILE = os.getenv("YT_DLP_COOKIE_FILE", None)
 
 # --- In-memory store for last actions ---
 # This is a simple in-memory dictionary.
@@ -64,7 +64,7 @@ async def run_yt_dlp_command(args):
 
 async def get_video_info(url: str):
     """Gets video metadata using yt-dlp --dump-json."""
-    args = ["--dump-json", "--cookies", COOKIE_FILE, "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
+    args = ["--dump-json", "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
     process = await run_yt_dlp_command(args)
     stdout, stderr = await process.communicate()
 
