@@ -78,10 +78,14 @@
     }
 
     .loading {
-      display: none;
+      display: none; /* Initially hidden, JS will show it */
       margin-top: 15px;
       color: #555;
       font-style: italic;
+      text-align: left; /* Or center, depending on preference for a single line */
+      border: 1px solid #eee; /* Optional: keeps some visual separation */
+      padding: 10px;
+      word-break: break-all; /* Prevent long logs from breaking layout */
     }
 
     .error {
@@ -93,12 +97,11 @@
 </head>
 <body>
   <div class="container">
-    <!-- Заглавное изображение -->
     <img src="/static/images/beach-man.png" alt="Мужчина на пляже" class="hero-image">
 
     <h1>Видеочиллер</h1>
 
-    <form id="download-form" action="/download" method="post" onsubmit="showLoading();">
+    <form id="download-form" action="/download" method="post">
       <label for="url">Ссылка на видео</label>
       <input
         type="url"
@@ -114,20 +117,82 @@
         <option value="720">720p</option>
         <option value="1080">1080p</option>
       </select>
+      <input type="hidden" id="download-id" name="download_id" value="">
       <input type="submit" value="Скачать">
     </form>
 
     <div id="loading-message" class="loading">
-      Загрузка начнется автоматически. Пожалуйста, подождите.
+      
     </div>
     <div id="error-message" class="error"></div>
   </div>
 
   <script>
-    function showLoading() {
+    let currentDownloadId = null;
+    let statusInterval = null;
+
+    function generateUniqueId() {
+      // Simple unique ID: timestamp + random number
+      return Date.now().toString(36) + Math.random().toString(36).substring(2);
+    }
+
+    async function fetchDownloadStatus(id, attemptNo) {
+      // If this poll is not for the currently active download, abort.
+      if (id !== currentDownloadId) {
+          console.log(`Poll attempt ${attemptNo} for ${id} (scheduled) aborted; current download ID is now ${currentDownloadId}.`);
+          return;
+      }
+
+      const loadingMessageDiv = document.getElementById('loading-message');
+      try {
+          console.log(`Workspaceing status for ${id}, attempt ${attemptNo}...`);
+          const response = await fetch(`/log/${id}`);
+
+          // Before updating UI or scheduling next, ensure the download ID hasn't changed during the await.
+          if (id !== currentDownloadId) {
+              console.log(`Workspace for ${id} (attempt ${attemptNo}) completed, but current ID changed to ${currentDownloadId}. Aborting further processing for ${id}.`);
+              return;
+          }
+
+          if (response.ok) {
+              const data = await response.json();
+              if (data && data.last_action) {
+                  loadingMessageDiv.textContent = data.last_action;
+              }
+          } else {
+              console.error(`Error fetching status for ${id} (attempt ${attemptNo}): ${response.status} ${response.statusText}`);
+              return
+          }
+      } catch (error) {
+          console.error(`Network error fetching status for ${id} (attempt ${attemptNo}):`, error);
+          return;
+      }
+
+      // If still the active download, schedule the next poll.
+      if (id === currentDownloadId) {
+          const nextAttemptNo = attemptNo + 1;
+          const delayForNextAttempt = nextAttemptNo * 1000; // 
+
+          setTimeout(() => {
+              fetchDownloadStatus(id, nextAttemptNo);
+          }, delayForNextAttempt);
+      } else {
+          // This case handles if currentDownloadId changed right after fetch but before scheduling the next poll.
+          console.log(`Polling for ${id} (attempt ${attemptNo}) completed. Current download ID changed to ${currentDownloadId}. Next poll for ${id} not scheduled.`);
+      }
+    }
+
+
+    document.getElementById('download-form').addEventListener('submit', function() {
       document.getElementById('loading-message').style.display = 'block';
       document.getElementById('error-message').textContent = '';
-    }
+      // Generate and set the unique ID
+      currentDownloadId = generateUniqueId();
+      document.getElementById('download-id').value = currentDownloadId;
+      setTimeout(() => {
+              fetchDownloadStatus(currentDownloadId, 0);
+          }, 200);
+    });
   </script>
 </body>
 </html>
