@@ -171,7 +171,7 @@
       // If still the active download, schedule the next poll.
       if (id === currentDownloadId) {
           const nextAttemptNo = attemptNo + 1;
-          const delayForNextAttempt = nextAttemptNo * 1000; // 
+          const delayForNextAttempt = nextAttemptNo * 100; // 
 
           setTimeout(() => {
               fetchDownloadStatus(id, nextAttemptNo);

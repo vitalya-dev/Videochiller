@@ -43,7 +43,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # --- Helper Functions ---
 
-def update_action_log(download_id: str, action: str):
+def update_action_log(download_id: str | None, action: str):
     """Updates the in-memory action log for a given download_id."""
     if download_id:
         download_actions_log[download_id] = action
@@ -64,7 +64,7 @@ async def run_yt_dlp_command(args):
 
 async def get_video_info(url: str):
     """Gets video metadata using yt-dlp --dump-json."""
-    args = ["--dump-json", "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
+    args = ["--dump-json", "--cookies", "cookies.firefox-private.txt", "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
     process = await run_yt_dlp_command(args)
     stdout, stderr = await process.communicate()
 
@@ -128,7 +128,7 @@ async def stream_video_content(
         command.extend(["--audio_format", audio_format_arg])
     if cookie_file_path:
         # We will need to add an argument like "--cookie_file" to ytdl_pipe_merge.py
-        command.extend(["--cookie_file", cookie_file_path])
+        command.extend(["--cookies", cookie_file_path])
     # If quality_pref is None, ytdl_pipe_merge.py will use its own default formats.
 
     logger.info(f"Executing ytdl_pipe_merge.py with command: {' '.join(shlex.quote(c) for c in command)}")
@@ -138,6 +138,9 @@ async def stream_video_content(
         stdout=asyncio.subprocess.PIPE,
         stderr=DEVNULL
     )
+
+    update_action_log(download_id, f"Executing merge")
+
 
     try:
         chunk_size = 8 * 1024  # 8KB
