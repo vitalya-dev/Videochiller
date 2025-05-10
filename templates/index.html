@@ -154,16 +154,32 @@
         }
     }
 
+    function scheduleProgressivePoll(idForCurrentSequence, attemptNo) {
+      // If this polling sequence is no longer for the active download, stop immediately.
+      if (idForCurrentSequence !== currentDownloadId) {
+          return;
+      }
+      const delayForThisAttempt = attemptNo * 200; // Delay is 200ms, then 400ms, then 600ms...
+      activePollTimeoutId = setTimeout(async () => {
+          if (idForCurrentSequence !== currentDownloadId) {
+              console.log(`Poll attempt ${attemptNo} for ${idForCurrentSequence} aborted pre-fetch; current ID is now ${currentDownloadId}.`);
+              return;
+          }
+          await fetchDownloadStatus(idForCurrentSequence);
+
+          // If not stopped, schedule the next poll for the same download sequence
+          scheduleProgressivePoll(idForCurrentSequence, attemptNo + 1);
+
+      }, delayForThisAttempt);
+    }
+
     document.getElementById('download-form').addEventListener('submit', function() {
       document.getElementById('loading-message').style.display = 'block';
       document.getElementById('error-message').textContent = '';
       // Generate and set the unique ID
       currentDownloadId = generateUniqueId();
       document.getElementById('download-id').value = currentDownloadId;
-      if (statusInterval) clearInterval(statusInterval);
-      statusInterval = setInterval(() => {
-        fetchDownloadStatus(currentDownloadId);
-      }, 1000); // Poll every 1 seconds
+      scheduleProgressivePoll(currentDownloadId, 0)
     });
   </script>
 </body>
