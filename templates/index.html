@@ -78,10 +78,14 @@
     }
 
     .loading {
-      display: none;
+      display: none; /* Initially hidden, JS will show it */
       margin-top: 15px;
       color: #555;
       font-style: italic;
+      text-align: left; /* Or center, depending on preference for a single line */
+      border: 1px solid #eee; /* Optional: keeps some visual separation */
+      padding: 10px;
+      word-break: break-all; /* Prevent long logs from breaking layout */
     }
 
     .error {
@@ -134,11 +138,15 @@
 
     async function fetchDownloadStatus(id) {
       if (!id) return;
+      const loadingMessageDiv = document.getElementById('loading-message');
       try {
         const response = await fetch(`/log/${id}`);
         if (response.ok) {
           const data = await response.json();
-          console.log(data)
+          if (data && data.last_action) {
+            // Replace the content of the div with the new log entry
+            loadingMessageDiv.textContent = data.last_action;
+          }
         }
       } catch (error) {
           console.error("Error fetching status:", error);
@@ -155,7 +163,7 @@
       if (statusInterval) clearInterval(statusInterval);
       statusInterval = setInterval(() => {
         fetchDownloadStatus(currentDownloadId);
-      }, 3000); // Poll every 3 seconds
+      }, 1000); // Poll every 1 seconds
     });
   </script>
 </body>
