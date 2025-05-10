@@ -7,10 +7,11 @@ from pathlib import Path
 from urllib.parse import quote # Import the quote function for URL-encoding
 import sys
 import os
+from typing import Dict
 
 
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, Request, Form, HTTPException, Path as FastAPIPath
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles # <--- Import StaticFiles
 
@@ -24,6 +25,12 @@ YT_DLP_PATH = "yt-dlp"
 
 COOKIE_FILE = os.getenv("YT_DLP_COOKIE_FILE", "cookies.Gemini.txt")
 
+# --- In-memory store for last actions ---
+# This is a simple in-memory dictionary.
+# For a production environment with multiple workers or needing persistence,
+# consider using Redis, a database, or other shared memory solutions.
+download_actions_log: Dict[str, str] = {}
+
 # --- FastAPI App Setup ---
 app = FastAPI()
 
@@ -35,6 +42,13 @@ static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # --- Helper Functions ---
+
+def update_action_log(download_id: str, action: str):
+    """Updates the in-memory action log for a given download_id."""
+    if download_id:
+        download_actions_log[download_id] = action
+        logger.debug(f"ACTION_LOG: ID: {download_id} - Action: {action}")
+
 
 async def run_yt_dlp_command(args):
     """Runs a yt-dlp command asynchronously and returns stdout, stderr, returncode."""
@@ -80,7 +94,8 @@ async def stream_video_content(
     request: Request,
     url: str,
     quality_pref: str | None = None,  # e.g., "720" for 720p, or None for default
-    cookie_file_path: str | None = None
+    cookie_file_path: str | None = None,
+    download_id: str | None = None
 ):
     """
     Async generator to stream video content by calling ytdl_pipe_merge.py.
@@ -204,15 +219,20 @@ async def download_video(
     request: Request,
     url: str = Form(...),
     quality: str | None = Form(None),
+    download_id: str = Form(...) # Added download_id form field
 ):
     """Handles the download request, gets info, and streams the video (always as WebM)."""
     if not url:
         raise HTTPException(status_code=400, detail="URL parameter is missing.")
+    if not download_id: # Should be guaranteed by Form(...)
+        # This is more of a safeguard if Form(...) was not `...`
+        logger.error(f"Critical: Download ID missing in POST request despite being required.")
+        raise HTTPException(status_code=400, detail="Download ID parameter is missing.")
 
-    logger.info(f"Received download request for URL: {url}, Quality: {quality}")
+    update_action_log(download_id, f"Received download request for URL: {url}, Quality: {quality}")
 
     try:
-        logger.info(f"Fetching video info for: {url}")
+        update_action_log(download_id, f"Fetching video info for: {url}")
         info = await get_video_info(url) # Get original video info for title, etc.
 
         # --- Output is always WebM when using ytdl_pipe_merge.py ---
@@ -239,20 +259,20 @@ async def download_video(
             f"filename*=UTF-8''{encoded_filename}"
         )
 
-        logger.info(f"Determined filename: '{original_filename}', Fallback: '{ascii_fallback_filename}', Media type: '{media_type}'")
-        logger.info(f"Content-Disposition header: {content_disposition}")
+        update_action_log(download_id, f"Determined filename: '{original_filename}', Fallback: '{ascii_fallback_filename}', Media type: '{media_type}'")
+        update_action_log(download_id, f"Content-Disposition header: {content_disposition}")
 
         headers = {
             'Content-Disposition': content_disposition
         }
 
-        logger.info(f"Starting video stream for '{original_filename}' (as WebM)...")
+        update_action_log(download_id, f"Starting video stream for '{original_filename}' (as WebM)...")
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
-            stream_video_content(request, url, quality, COOKIE_FILE),
+            stream_video_content(request, url, quality, COOKIE_FILE, download_id),
             media_type=media_type, # Should be "video/webm"
-            headers=headers
+            headers=headers,
         )
 
     except HTTPException: # Re-raise HTTPExceptions directly
@@ -260,6 +280,22 @@ async def download_video(
     except Exception as e:
         logger.exception(f"Unexpected error processing download for {url}: {e}")
         raise HTTPException(status_code=500, detail=f"An internal server error occurred: {str(e)}")
+
+@app.get("/log/{download_id}", response_class=JSONResponse)
+async def get_log_entry(
+    download_id: str = FastAPIPath(..., title="The ID of the download to get logs for")
+):
+    """
+    Retrieves the last logged action for a specific download ID.
+    """
+    logger.info(f"Log query received for ID: {download_id}")
+    action = download_actions_log.get(download_id)
+    if action is None:
+        logger.warning(f"No log found for ID: {download_id}")
+        raise HTTPException(status_code=404, detail="Log not found for this ID.")
+    
+    return {"download_id": download_id, "last_action": action}
+
 
 
 # --- Optional: Run directly with Uvicorn ---
