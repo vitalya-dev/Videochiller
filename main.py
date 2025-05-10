@@ -41,6 +41,25 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # --- Helper Functions ---
 
+async def send_ws_message(unique_id: str, status: str, message: str, url: str | None = None):
+    """
+    Sends a JSON message to the WebSocket client if connected.
+    """
+    if unique_id in active_connections:
+        ws = active_connections[unique_id]
+        try:
+            payload = {"id": unique_id, "status": status, "message": message}
+            if url:
+                payload["url"] = url
+            await ws.send_text(json.dumps(payload))
+            logger.debug(f"Sent WS message to {unique_id}: {payload}")
+        except WebSocketDisconnect:
+            logger.warning(f"Client {unique_id} disconnected before message could be sent: {message}")
+        except Exception as e:
+            logger.error(f"Error sending WebSocket message to {unique_id}: {e}")
+    else:
+        logger.warning(f"No active WebSocket connection found for unique_id: {unique_id} to send: {message}")
+
 async def run_yt_dlp_command(args):
     """Runs a yt-dlp command asynchronously and returns stdout, stderr, returncode."""
     command = [YT_DLP_PATH] + args
@@ -85,7 +104,8 @@ async def stream_video_content(
     request: Request,
     url: str,
     quality_pref: str | None = None,  # e.g., "720" for 720p, or None for default
-    cookie_file_path: str | None = None
+    cookie_file_path: str | None = None,
+    unique_id: str | None = None
 ):
     """
     Async generator to stream video content by calling ytdl_pipe_merge.py.
@@ -204,7 +224,6 @@ async def websocket_endpoint(websocket: WebSocket, unique_id: str):
     logger.info(f"WebSocket connection established with ID: {unique_id}")
     try:
         while True:
-            logger.info(f"application_state: {websocket.application_state}")
             # For now, we are not expecting any messages or sending any.
             # This loop will keep the connection alive.
             # You can add logic here to receive/send messages in the future.
@@ -231,15 +250,18 @@ async def download_video(
     request: Request,
     url: str = Form(...),
     quality: str | None = Form(None),
+    unique_id: str = Form(...)
 ):
     """Handles the download request, gets info, and streams the video (always as WebM)."""
     if not url:
         raise HTTPException(status_code=400, detail="URL parameter is missing.")
 
     logger.info(f"Received download request for URL: {url}, Quality: {quality}")
+    await send_ws_message(unique_id, "info", f"Download request received for {url}. Quality: {quality or 'auto'}.", url=url)
 
     try:
         logger.info(f"Fetching video info for: {url}")
+        await send_ws_message(unique_id, "info", "Fetching video information...", url=url)
         info = await get_video_info(url) # Get original video info for title, etc.
 
         # --- Output is always WebM when using ytdl_pipe_merge.py ---
@@ -266,6 +288,7 @@ async def download_video(
             f"filename*=UTF-8''{encoded_filename}"
         )
 
+        await send_ws_message(unique_id, "info", f"Video title: {title}. Filename will be '{original_filename}'.", url=url)
         logger.info(f"Determined filename: '{original_filename}', Fallback: '{ascii_fallback_filename}', Media type: '{media_type}'")
         logger.info(f"Content-Disposition header: {content_disposition}")
 
@@ -273,11 +296,12 @@ async def download_video(
             'Content-Disposition': content_disposition
         }
 
+        await send_ws_message(unique_id, "info", "Preparing to stream video content...", url=url)
         logger.info(f"Starting video stream for '{original_filename}' (as WebM)...")
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
-            stream_video_content(request, url, quality, COOKIE_FILE),
+            stream_video_content(request, url, quality, COOKIE_FILE, unique_id),
             media_type=media_type, # Should be "video/webm"
             headers=headers
         )
@@ -285,6 +309,7 @@ async def download_video(
     except HTTPException: # Re-raise HTTPExceptions directly
         raise
     except Exception as e:
+        await send_ws_message(unique_id, "error", f"Error: {e}", url=url)
         logger.exception(f"Unexpected error processing download for {url}: {e}")
         raise HTTPException(status_code=500, detail=f"An internal server error occurred: {str(e)}")
 

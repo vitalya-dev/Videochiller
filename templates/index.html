@@ -93,12 +93,11 @@
 </head>
 <body>
   <div class="container">
-    <!-- Заглавное изображение -->
     <img src="/static/images/beach-man.png" alt="Мужчина на пляже" class="hero-image">
 
     <h1>Видеочиллер</h1>
 
-    <form id="download-form" action="/download" method="post" onsubmit="showLoading();">
+    <form id="download-form" action="/download" method="post">
       <label for="url">Ссылка на видео</label>
       <input
         type="url"
@@ -114,6 +113,8 @@
         <option value="720">720p</option>
         <option value="1080">1080p</option>
       </select>
+      <input type="hidden" id="unique_id_field" name="unique_id">
+      
       <input type="submit" value="Скачать">
     </form>
 
@@ -124,19 +125,30 @@
   </div>
 
   <script>
-    function showLoading() {
+    let clientUniqueId = ''; // Variable to store the uniqueId
+
+    function prepareFormAndShowLoading() {
+      // Set the unique_id in the hidden field before submitting
+      if (clientUniqueId) {
+        document.getElementById('unique_id_field').value = clientUniqueId;
+      }
       document.getElementById('loading-message').style.display = 'block';
       document.getElementById('error-message').textContent = '';
+      return true; // Proceed with form submission
     }
+    
+    // Assign the function to the form's onsubmit event
+    document.getElementById('download-form').onsubmit = prepareFormAndShowLoading;
+
     // WebSocket connection
     window.addEventListener('load', () => {
       // Generate a simple unique ID (for demonstration purposes)
-      const uniqueId = 'client-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
-      console.log('Generated Client ID for WebSocket:', uniqueId);
+      clientUniqueId = 'client-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7); // Assign to clientUniqueId
+      console.log('Generated Client ID for WebSocket:', clientUniqueId);
 
       // Determine WebSocket protocol (ws or wss)
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${window.location.host}/ws/${uniqueId}`;
+      const wsUrl = `${wsProtocol}//${window.location.host}/ws/${clientUniqueId}`; // Use clientUniqueId here
       console.log('Attempting to connect to WebSocket:', wsUrl);
 
       const socket = new WebSocket(wsUrl);
@@ -144,12 +156,12 @@
       socket.onopen = function(event) {
         console.log('WebSocket connection opened:', event);
         // You could send a message here if needed:
-        // socket.send(JSON.stringify({ message: 'Hello from client ' + uniqueId }));
+        // socket.send(JSON.stringify({ message: 'Hello from client ' + clientUniqueId }));
       };
 
       socket.onmessage = function(event) {
         console.log('WebSocket message received:', event.data);
-        // Handle incoming messages here
+        // Handle incoming messages here (e.g., download progress)
       };
 
       socket.onerror = function(event) {
