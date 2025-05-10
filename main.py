@@ -132,6 +132,7 @@ async def stream_video_content(
     # If quality_pref is None, ytdl_pipe_merge.py will use its own default formats.
 
     logger.info(f"Executing ytdl_pipe_merge.py with command: {' '.join(shlex.quote(c) for c in command)}")
+    update_action_log(download_id, f"Executing ytdl_pipe_merge.py")
 
     process = await asyncio.create_subprocess_exec(
         *command,
@@ -139,7 +140,12 @@ async def stream_video_content(
         stderr=DEVNULL
     )
 
-    update_action_log(download_id, f"Executing merge")
+    if download_id and download_id in download_actions_log:
+        try:
+            del download_actions_log[download_id]
+            logger.info(f"ACTION_LOG: Removed ID: {download_id} from log as download process started.")
+        except KeyError:
+            logger.warning(f"ACTION_LOG: Attempted to remove ID: {download_id}, but it was not found in log.")
 
 
     try:
