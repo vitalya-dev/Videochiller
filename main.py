@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 # Path to yt-dlp executable (adjust if not in PATH)
 YT_DLP_PATH = "yt-dlp"
 
-COOKIE_FILE = os.getenv("YT_DLP_COOKIE_FILE", None)
+
+COOKIE_FILE_INFO = os.getenv("YT_DLP_COOKIE_FILE_INFO", "cookies.firefox-private.txt")
+COOKIE_FILE_STREAM = os.getenv("YT_DLP_COOKIE_FILE_STREAM", None)
 
 # --- In-memory store for last actions ---
 # This is a simple in-memory dictionary.
@@ -62,9 +64,15 @@ async def run_yt_dlp_command(args):
     )
     return process
 
-async def get_video_info(url: str):
+async def get_video_info(url: str, cookie_file_path: str | None = None):
     """Gets video metadata using yt-dlp --dump-json."""
-    args = ["--dump-json", "--cookies", "cookies.firefox-private.txt", "--no-playlist", "--", url] # '--' ensures URL is treated as positional arg
+    args = ["--dump-json"]
+    if cookie_file_path:
+        if os.path.exists(cookie_file_path):
+            args.extend(["--cookies", cookie_file_path])
+        else:
+            logger.warning(f"Cookie file for get_video_info specified but not found: {cookie_file_path}. Proceeding without cookies for this operation.")
+    args.extend(["--no-playlist", "--", url])
     process = await run_yt_dlp_command(args)
     stdout, stderr = await process.communicate()
 
@@ -184,7 +192,7 @@ async def stream_video_content(
     )
 
     if download_id:
-        asyncio.create_task(delete_log_after_delay(download_id, 10)) # Using 10 seconds as requested
+        asyncio.create_task(delete_log_after_delay(download_id, 2)) # Using 10 seconds as requested
         logger.info(f"ACTION_LOG: Scheduled deletion of log for ID: {download_id} in 2 seconds.")
 
     try:
@@ -282,7 +290,7 @@ async def download_video(
     try:
         logger.info(f"Fetching video info for: {url}")
         update_action_log(download_id, f"Fetching video info for: {url}")
-        info = await get_video_info(url) # Get original video info for title, etc.
+        info = await get_video_info(url, cookie_file_path=COOKIE_FILE_INFO) # Get original video info for title, etc.
 
         # --- Output is always WebM when using ytdl_pipe_merge.py ---
         output_ext = "mkv"
@@ -321,7 +329,7 @@ async def download_video(
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
-            stream_video_content(request, url, quality, COOKIE_FILE, download_id),
+            stream_video_content(request, url, quality, COOKIE_FILE_STREAM, download_id),
             media_type=media_type, 
             headers=headers,
         )
