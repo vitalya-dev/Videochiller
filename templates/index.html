@@ -130,6 +130,8 @@
 
   <script>
     let currentDownloadId = null;
+    const FETCH_TIMEOUT_MS = 8000;
+    const MAX_POLL_ATTEMPTS = 120;
     let statusInterval = null;
     const animationFrames = ['-', '\\', '|', '/']; // Animation frames
 
@@ -139,44 +141,63 @@
     }
 
     async function fetchDownloadStatus(id, attemptNo) {
+      const loadingMessageDiv = document.getElementById('loading-message');
       // If this poll is not for the currently active download, abort.
       if (id !== currentDownloadId) {
           console.log(`Poll attempt ${attemptNo} for ${id} (scheduled) aborted; current download ID is now ${currentDownloadId}.`);
           return;
       }
 
-      const loadingMessageDiv = document.getElementById('loading-message');
+      if (attemptNo >= MAX_POLL_ATTEMPTS) {
+        console.warn(`Max poll attempts reached for download ID ${id}. Stopping polling.`);
+        if (loadingMessageDiv.style.display === 'block' && id === currentDownloadId) { // Check if still relevant
+            loadingMessageDiv.textContent = `⚠️ Status updates are taking longer than expected. The download might still be in progress. You may need to check back or try again if it doesn't complete.`;
+        }
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
       try {
-          console.log(`Workspaceing status for ${id}, attempt ${attemptNo}...`);
-          const response = await fetch(`/log/${id}`);
+        console.log(`Workspaceing status for ${id}, attempt ${attemptNo}...`);
+        const response = await fetch(`/log/${id}`, { signal: controller.signal });
+        clearTimeout(timeoutId)
 
-          // Before updating UI or scheduling next, ensure the download ID hasn't changed during the await.
-          if (id !== currentDownloadId) {
-              console.log(`Workspace for ${id} (attempt ${attemptNo}) completed, but current ID changed to ${currentDownloadId}. Aborting further processing for ${id}.`);
-              return;
+        // Before updating UI or scheduling next, ensure the download ID hasn't changed during the await.
+        if (id !== currentDownloadId) {
+            console.log(`Workspace for ${id} (attempt ${attemptNo}) completed, but current ID changed to ${currentDownloadId}. Aborting further processing for ${id}.`);
+            return;
+        }
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data && data.last_action) {
+                const currentFrame = animationFrames[attemptNo % animationFrames.length];
+                loadingMessageDiv.textContent = `${currentFrame} ${data.last_action}`;
+            }
+        } else {
+            // Log was not found or other error
+            if (response.status === 404 && id === currentDownloadId) {
+                console.log(`Log not found for current download ID ${id} (attempt ${attemptNo}). Clearing message and stopping polling for this ID.`);
+                loadingMessageDiv.textContent = '';
+                loadingMessageDiv.style.display = 'none';
+            } else {
+                console.error(`Error fetching status for ${id} (attempt ${attemptNo}): ${response.status} ${response.statusText}. It might be an old download ID or another issue.`);
+            }
+            return; // Stop polling for this ID if there was an error or log not found
+
           }
-
-          if (response.ok) {
-              const data = await response.json();
-              if (data && data.last_action) {
-                  const currentFrame = animationFrames[attemptNo % animationFrames.length];
-                  loadingMessageDiv.textContent = `${currentFrame} ${data.last_action}`;
-              }
-          } else {
-              // Log was not found or other error
-              if (response.status === 404 && id === currentDownloadId) {
-                  console.log(`Log not found for current download ID ${id} (attempt ${attemptNo}). Clearing message and stopping polling for this ID.`);
-                  loadingMessageDiv.textContent = '';
-                  loadingMessageDiv.style.display = 'none';
-              } else {
-                  console.error(`Error fetching status for ${id} (attempt ${attemptNo}): ${response.status} ${response.statusText}. It might be an old download ID or another issue.`);
-              }
-              return; // Stop polling for this ID if there was an error or log not found
-
-          }
-      } catch (error) {
-          console.error(`Network error fetching status for ${id} (attempt ${attemptNo}):`, error);
-          return;
+      } catch (error) { // Catches network errors and abort errors
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.warn(`Workspace timed out for ${id} (attempt ${attemptNo}). Will retry if polling continues.`);
+          // Optionally update UI to indicate a temporary issue
+          // loadingMessageDiv.textContent = `⌛ Status update timed out, retrying...`;
+        } else {
+          console.error(`Error fetching status for ${id} (attempt ${attemptNo}):`, error);
+          // For other errors, we might want to stop polling or let it retry on the next cycle.
+        }
       }
 
       // If still the active download, schedule the next poll.
