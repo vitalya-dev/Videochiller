@@ -64,7 +64,7 @@ def download_video(url, video_format, audio_format, output_filename=None, cookie
             "-map", "1:a",
             "-c:v", "copy",
             "-c:a", "copy",
-            "-f", "webm",
+            "-f", "matroska",
         ]
 
         ffmpeg_stdout_target = None

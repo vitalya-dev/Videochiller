@@ -140,7 +140,7 @@ async def stream_video_content(
 
     if quality_pref:
         # Construct format strings for yt-dlp that ytdl_pipe_merge.py will use.
-        # Prioritize WebM as ytdl_pipe_merge.py outputs WebM via ffmpeg.
+        # Prioritize WebM and MP4 source formats; ytdl_pipe_merge.py now outputs Matroska (MKV) via ffmpeg.
         # Fallbacks ensure that a format is found if the specific quality/ext is not available.
         # (protocol!=m3u8) avoids HLS streams which might be slower for yt-dlp to pipe.
         video_format_arg = (
@@ -285,8 +285,8 @@ async def download_video(
         info = await get_video_info(url) # Get original video info for title, etc.
 
         # --- Output is always WebM when using ytdl_pipe_merge.py ---
-        output_ext = "webm"
-        media_type = "video/webm"
+        output_ext = "mkv"
+        media_type = "video/x-matroska"
         # ---
 
         title = info.get('title', 'video')
@@ -297,7 +297,7 @@ async def download_video(
             safe_title = safe_title.replace(char, '_')
         safe_title = safe_title.replace("'", "_").replace('"', '_').strip()
 
-        # Ensure filename has .webm extension
+        # Ensure filename has the correct extension (now .mkv)
         original_filename = f"{safe_title}.{output_ext}" if safe_title else f"video.{output_ext}"
 
         # Percent-encode the filename for Content-Disposition header
@@ -316,13 +316,13 @@ async def download_video(
             'Content-Disposition': content_disposition
         }
 
-        logger.info(f"Starting video stream for '{original_filename}' (as WebM)...")
-        update_action_log(download_id, f"Starting video stream for '{original_filename}' (as WebM)...")
+        logger.info(f"Starting video stream for '{original_filename}' (as MKV)...")
+        update_action_log(download_id, f"Starting video stream for '{original_filename}' (as MKV)...")
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
         return StreamingResponse(
             stream_video_content(request, url, quality, COOKIE_FILE, download_id),
-            media_type=media_type, # Should be "video/webm"
+            media_type=media_type, 
             headers=headers,
         )
 
