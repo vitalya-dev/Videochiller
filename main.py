@@ -155,6 +155,21 @@ async def stream_video_content(
         )
         command.extend(["--video_format", video_format_arg])
         command.extend(["--audio_format", audio_format_arg])
+    else:
+        # If no quality preference, aim for the best available formats,
+        # still prioritizing webm/mp4 and avoiding m3u8.
+        video_format_arg = (
+            "(bestvideo[ext=webm][protocol!=m3u8]/"
+            "bestvideo[ext=mp4][protocol!=m3u8]/"
+            "bestvideo[protocol!=m3u8])"
+        )
+        audio_format_arg = (
+            "(bestaudio[ext=webm][protocol!=m3u8]/"
+            "bestaudio[ext=m4a][protocol!=m3u8]/bestaudio[protocol!=m3u8])"
+        )
+        command.extend(["--video_format", video_format_arg])
+        command.extend(["--audio_format", audio_format_arg])
+
     if cookie_file_path:
         # We will need to add an argument like "--cookie_file" to ytdl_pipe_merge.py
         command.extend(["--cookies", cookie_file_path])
