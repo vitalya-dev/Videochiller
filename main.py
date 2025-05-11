@@ -191,10 +191,8 @@ async def stream_video_content(
         stderr=DEVNULL
     )
 
-    if download_id:
-        asyncio.create_task(delete_log_after_delay(download_id, 10)) # Using 10 seconds as requested
-        logger.info(f"ACTION_LOG: Scheduled deletion of log for ID: {download_id} in 2 seconds.")
 
+    first_chunk_yielded = False
     try:
         chunk_size = 8 * 1024  # 8KB
         while True:
@@ -221,6 +219,10 @@ async def stream_video_content(
                     logger.debug(f"ytdl_pipe_merge.py stdout EOF for URL {url}.")
                     break
                 yield chunk
+                if download_id and not first_chunk_yielded:
+                    logger.info(f"ACTION_LOG: First chunk yielded for ID: {download_id}. Scheduling immediate deletion of log.")
+                    asyncio.create_task(delete_log_after_delay(download_id, 0)) # Schedule deletion with 0 delay
+                    first_chunk_yielded = True
             else: # Should not happen if Popen succeeded with stdout=PIPE
                 logger.error("ytdl_pipe_merge.py stdout is None, breaking stream.")
                 break
@@ -255,6 +257,9 @@ async def stream_video_content(
             except Exception as e:
                 logger.error(f"Error during final termination of process {process.pid}: {e}")
                 if process.returncode is None: process.kill(); await process.wait()
+        if download_id:
+            logger.info(f"ACTION_LOG: Stream for ID: {download_id} ended. Ensuring log cleanup in finally block.")
+            asyncio.create_task(delete_log_after_delay(download_id, 0))
         logger.debug("stream_video_content finished for URL: %s", url)
 
 
