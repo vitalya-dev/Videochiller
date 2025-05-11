@@ -81,6 +81,7 @@
       display: none; /* Initially hidden, JS will show it */
       margin-top: 15px;
       color: #555;
+      font-family: monospace; /* Ensures animation characters have consistent width */
       font-style: italic;
       text-align: left; /* Or center, depending on preference for a single line */
       border: 1px solid #eee; /* Optional: keeps some visual separation */
@@ -130,6 +131,7 @@
   <script>
     let currentDownloadId = null;
     let statusInterval = null;
+    const animationFrames = ['-', '\\', '|', '/']; // Animation frames
 
     function generateUniqueId() {
       // Simple unique ID: timestamp + random number
@@ -157,11 +159,20 @@
           if (response.ok) {
               const data = await response.json();
               if (data && data.last_action) {
-                  loadingMessageDiv.textContent = data.last_action;
+                  const currentFrame = animationFrames[attemptNo % animationFrames.length];
+                  loadingMessageDiv.textContent = `${currentFrame} ${data.last_action}`;
               }
           } else {
-              console.error(`Error fetching status for ${id} (attempt ${attemptNo}): ${response.status} ${response.statusText}`);
-              return
+              // Log was not found or other error
+              if (response.status === 404 && id === currentDownloadId) {
+                  console.log(`Log not found for current download ID ${id} (attempt ${attemptNo}). Clearing message and stopping polling for this ID.`);
+                  loadingMessageDiv.textContent = '';
+                  loadingMessageDiv.style.display = 'none';
+              } else {
+                  console.error(`Error fetching status for ${id} (attempt ${attemptNo}): ${response.status} ${response.statusText}. It might be an old download ID or another issue.`);
+              }
+              return; // Stop polling for this ID if there was an error or log not found
+
           }
       } catch (error) {
           console.error(`Network error fetching status for ${id} (attempt ${attemptNo}):`, error);
@@ -170,12 +181,9 @@
 
       // If still the active download, schedule the next poll.
       if (id === currentDownloadId) {
-          const nextAttemptNo = attemptNo + 1;
-          const delayForNextAttempt = nextAttemptNo * 100; // 
-
           setTimeout(() => {
-              fetchDownloadStatus(id, nextAttemptNo);
-          }, delayForNextAttempt);
+              fetchDownloadStatus(id, attemptNo + 1);
+          }, 500);
       } else {
           // This case handles if currentDownloadId changed right after fetch but before scheduling the next poll.
           console.log(`Polling for ${id} (attempt ${attemptNo}) completed. Current download ID changed to ${currentDownloadId}. Next poll for ${id} not scheduled.`);
