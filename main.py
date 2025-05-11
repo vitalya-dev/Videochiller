@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles # <--- Import StaticFiles
 
 # --- Configuration ---
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Path to yt-dlp executable (adjust if not in PATH)
@@ -122,7 +122,7 @@ async def delete_log_after_delay(download_id: str | None, delay_seconds: int):
         # This case means the log was not found, perhaps it was cleared by another mechanism
         # or the initial check for download_id in download_actions_log was more than `delay_seconds` ago
         # and it got removed in that window (unlikely with this simple setup).
-        logger.info(f"ACTION_LOG: ID: {download_id} was not found in logs for deletion after delay (perhaps already removed or never existed).")
+        logger.debug(f"ACTION_LOG: ID: {download_id} was not found in logs for deletion after delay (perhaps already removed or never existed).")
 
 
 
@@ -239,7 +239,7 @@ async def stream_video_content(
     except Exception as e:
         logger.exception(f"Error during streaming from ytdl_pipe_merge.py for URL {url}: {e}")
         if process.returncode is None:
-            logger.info(f"Killing ytdl_pipe_merge.py due to exception: {e}")
+            logger.debug(f"Killing ytdl_pipe_merge.py due to exception: {e}")
             process.kill() # Kill immediately on unexpected error
             await process.wait()
         raise # Re-raise the exception to be handled by FastAPI
