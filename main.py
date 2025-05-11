@@ -90,6 +90,35 @@ async def get_video_info(url: str):
         raise HTTPException(status_code=500, detail="Error decoding video information (non-UTF8).")
 
 
+
+async def delete_log_after_delay(download_id: str | None, delay_seconds: int):
+    """
+    Waits for a specified delay and then deletes the log entry
+    for the given download_id.
+    """
+    if not download_id:
+        return
+
+    await asyncio.sleep(delay_seconds) # Wait for the specified number of seconds
+
+    # Now, attempt to delete the log entry
+    if download_id in download_actions_log:
+        try:
+            del download_actions_log[download_id]
+            logger.info(f"ACTION_LOG: Successfully deleted ID: {download_id} from log after {delay_seconds}s delay.")
+        except KeyError:
+            # This might happen if it was somehow deleted by another concurrent process
+            # or if the key was removed between the check and the del, though less likely here.
+            logger.warning(f"ACTION_LOG: Attempted to delete ID: {download_id} after delay, but it was already gone.")
+    else:
+        # This case means the log was not found, perhaps it was cleared by another mechanism
+        # or the initial check for download_id in download_actions_log was more than `delay_seconds` ago
+        # and it got removed in that window (unlikely with this simple setup).
+        logger.info(f"ACTION_LOG: ID: {download_id} was not found in logs for deletion after delay (perhaps already removed or never existed).")
+
+
+
+
 async def stream_video_content(
     request: Request,
     url: str,
@@ -132,7 +161,6 @@ async def stream_video_content(
     # If quality_pref is None, ytdl_pipe_merge.py will use its own default formats.
 
     logger.info(f"Executing ytdl_pipe_merge.py with command: {' '.join(shlex.quote(c) for c in command)}")
-    update_action_log(download_id, f"Executing ytdl_pipe_merge.py")
 
     process = await asyncio.create_subprocess_exec(
         *command,
@@ -140,13 +168,9 @@ async def stream_video_content(
         stderr=DEVNULL
     )
 
-    if download_id and download_id in download_actions_log:
-        try:
-            del download_actions_log[download_id]
-            logger.info(f"ACTION_LOG: Removed ID: {download_id} from log as download process started.")
-        except KeyError:
-            logger.warning(f"ACTION_LOG: Attempted to remove ID: {download_id}, but it was not found in log.")
-
+    if download_id:
+        asyncio.create_task(delete_log_after_delay(download_id, 2)) # Using 2 seconds as requested
+        logger.info(f"ACTION_LOG: Scheduled deletion of log for ID: {download_id} in 2 seconds.")
 
     try:
         chunk_size = 8 * 1024  # 8KB
@@ -238,9 +262,10 @@ async def download_video(
         logger.error(f"Critical: Download ID missing in POST request despite being required.")
         raise HTTPException(status_code=400, detail="Download ID parameter is missing.")
 
-    update_action_log(download_id, f"Received download request for URL: {url}, Quality: {quality}")
+    logger.info(f"Received download request for URL: {url}, Quality: {quality}")
 
     try:
+        logger.info(f"Fetching video info for: {url}")
         update_action_log(download_id, f"Fetching video info for: {url}")
         info = await get_video_info(url) # Get original video info for title, etc.
 
@@ -268,13 +293,15 @@ async def download_video(
             f"filename*=UTF-8''{encoded_filename}"
         )
 
-        update_action_log(download_id, f"Determined filename: '{original_filename}', Fallback: '{ascii_fallback_filename}', Media type: '{media_type}'")
-        update_action_log(download_id, f"Content-Disposition header: {content_disposition}")
+
+        logger.info(f"Determined filename: '{original_filename}', Fallback: '{ascii_fallback_filename}', Media type: '{media_type}'")
+        logger.info(f"Content-Disposition header: {content_disposition}")
 
         headers = {
             'Content-Disposition': content_disposition
         }
 
+        logger.info(f"Starting video stream for '{original_filename}' (as WebM)...")
         update_action_log(download_id, f"Starting video stream for '{original_filename}' (as WebM)...")
 
         # Pass the quality preference (e.g., "720" or None) to stream_video_content
