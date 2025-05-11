@@ -192,7 +192,7 @@ async def stream_video_content(
     )
 
     if download_id:
-        asyncio.create_task(delete_log_after_delay(download_id, 2)) # Using 10 seconds as requested
+        asyncio.create_task(delete_log_after_delay(download_id, 10)) # Using 10 seconds as requested
         logger.info(f"ACTION_LOG: Scheduled deletion of log for ID: {download_id} in 2 seconds.")
 
     try:
