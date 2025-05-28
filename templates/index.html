@@ -1,227 +1,233 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Видеочиллер</title>
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <style>
-    /* Сброс отступов и границ */
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Видеочиллер</title>
+	<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+	<style>
+		/* Сброс отступов и границ */
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
 
-    body {
-      font-family: sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      background: linear-gradient(135deg, #f0f8ff 0%, #e6f7ff 100%);
-      padding: 20px;
-    }
+		body {
+			font-family: sans-serif;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			min-height: 100vh;
+			background: linear-gradient(135deg, #f0f8ff 0%, #e6f7ff 100%);
+			padding: 20px;
+		}
 
-    .container {
-      background: #fff;
-      max-width: 400px;
-      width: 100%;
-      padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-      text-align: center;
-    }
+		.container {
+			background: #fff;
+			max-width: 400px;
+			width: 100%;
+			padding: 30px;
+			border-radius: 12px;
+			box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+			text-align: center;
+		}
 
-    .hero-image {
-      width: 100%;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
+		.hero-image {
+			width: 100%;
+			border-radius: 8px;
+			margin-bottom: 20px;
+			box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+		}
 
-    h1 {
-      color: #333;
-      margin-bottom: 20px;
-      font-size: 1.6rem;
-    }
+		h1 {
+			color: #333;
+			margin-bottom: 20px;
+			font-size: 1.6rem;
+		}
 
-    label {
-      display: block;
-      margin-bottom: 8px;
-      font-weight: bold;
-      color: #555;
-      text-align: left;
-    }
-    select,
-    input[type="url"] {
-      width: 100%;
-      padding: 10px;
-      margin-bottom: 20px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 1rem;
-    }
+		label {
+			display: block;
+			margin-bottom: 8px;
+			font-weight: bold;
+			color: #555;
+			text-align: left;
+		}
+		select,
+		input[type="url"] {
+			width: 100%;
+			padding: 10px;
+			margin-bottom: 20px;
+			border: 1px solid #ccc;
+			border-radius: 4px;
+			font-size: 1rem;
+		}
 
-    input[type="submit"] {
-      background-color: #007bff;
-      color: white;
-      padding: 12px 25px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 1rem;
-      transition: background-color 0.2s ease;
-    }
-    input[type="submit"]:hover {
-      background-color: #0056b3;
-    }
+		input[type="submit"] {
+			background-color: #007bff;
+			color: white;
+			padding: 12px 25px;
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 1rem;
+			transition: background-color 0.2s ease;
+		}
+		input[type="submit"]:hover {
+			background-color: #0056b3;
+		}
 
-    .loading {
-      display: none; /* Initially hidden, JS will show it */
-      margin-top: 15px;
-      color: #555;
-      font-family: monospace; /* Ensures animation characters have consistent width */
-      font-style: italic;
-      text-align: left; /* Or center, depending on preference for a single line */
-      border: 1px solid #eee; /* Optional: keeps some visual separation */
-      padding: 10px;
-      word-break: break-all; /* Prevent long logs from breaking layout */
-    }
+		.loading {
+			display: none; /* Initially hidden, JS will show it */
+			margin-top: 15px;
+			color: #555;
+			font-family: monospace; /* Ensures animation characters have consistent width */
+			font-style: italic;
+			text-align: left; /* Or center, depending on preference for a single line */
+			border: 1px solid #eee; /* Optional: keeps some visual separation */
+			padding: 10px;
+			word-break: break-all; /* Prevent long logs from breaking layout */
+		}
 
-    .error {
-      color: #c0392b;
-      margin-top: 15px;
-      font-weight: bold;
-    }
-  </style>
+		.error {
+			color: #c0392b;
+			margin-top: 15px;
+			font-weight: bold;
+		}
+	</style>
 </head>
 <body>
-  <div class="container">
-    <img src="/static/images/beach-man.png" alt="Мужчина на пляже" class="hero-image">
+	<div class="container">
+		<img src="/static/images/beach-man.png" alt="Мужчина на пляже" class="hero-image">
 
-    <h1>Видеочиллер</h1>
+		<h1>Видеочиллер</h1>
 
-    <form id="download-form" action="/download" method="post">
-      <label for="url">Ссылка на видео</label>
-      <input
-        type="url"
-        id="url"
-        name="url"
-        placeholder="например, https://www.youtube.com/watch?v=..."
-        required
-      >
-      <label for="quality">Качество видео</label>
-      <select id="quality" name="quality">
-        <option value="">Авто (лучшее доступное)</option>
-        <option value="360">360p</option>
-        <option value="720">720p</option>
-        <option value="1080">1080p</option>
-      </select>
-      <input type="hidden" id="download-id" name="download_id" value="">
-      <input type="submit" value="Скачать">
-    </form>
+		<form id="download-form" action="/download" method="post">
+			<label for="url">Ссылка на видео</label>
+			<input
+				type="url"
+				id="url"
+				name="url"
+				placeholder="например, https://www.youtube.com/watch?v=..."
+				required
+			>
+			<label for="quality">Качество видео</label>
+			<select id="quality" name="quality">
+				<option value="">Авто (лучшее доступное)</option>
+				<option value="360">360p</option>
+				<option value="720">720p</option>
+				<option value="1080">1080p</option>
+			</select>
 
-    <div id="loading-message" class="loading">
-      
-    </div>
-    <div id="error-message" class="error"></div>
-  </div>
+			<label for="container">Формат контейнера</label>
+			<select id="container" name="container">
+				<option value="mp4" selected>MP4 (для лучшей совместимости)</option>
+				<option value="mkv">MKV</option>
+			</select>
+			<input type="hidden" id="download-id" name="download_id" value="">
+			<input type="submit" value="Скачать">
+		</form>
 
-  <script>
-    let currentDownloadId = null;
-    const FETCH_TIMEOUT_MS = 8000;
-    const MAX_POLL_ATTEMPTS = 120;
-    let statusInterval = null;
-    const animationFrames = ['-', '\\', '|', '/']; // Animation frames
+		<div id="loading-message" class="loading">
+			
+		</div>
+		<div id="error-message" class="error"></div>
+	</div>
 
-    function generateUniqueId() {
-      // Simple unique ID: timestamp + random number
-      return Date.now().toString(36) + Math.random().toString(36).substring(2);
-    }
+	<script>
+		let currentDownloadId = null;
+		const FETCH_TIMEOUT_MS = 8000;
+		const MAX_POLL_ATTEMPTS = 120;
+		let statusInterval = null;
+		const animationFrames = ['-', '\\', '|', '/']; // Animation frames
 
-    async function fetchDownloadStatus(id, attemptNo) {
-      const loadingMessageDiv = document.getElementById('loading-message');
-      // If this poll is not for the currently active download, abort.
-      if (id !== currentDownloadId) {
-          console.log(`Poll attempt ${attemptNo} for ${id} (scheduled) aborted; current download ID is now ${currentDownloadId}.`);
-          return;
-      }
+		function generateUniqueId() {
+			// Simple unique ID: timestamp + random number
+			return Date.now().toString(36) + Math.random().toString(36).substring(2);
+		}
 
-      if (attemptNo >= MAX_POLL_ATTEMPTS) {
-        console.warn(`Max poll attempts reached for download ID ${id}. Stopping polling.`);
-        if (loadingMessageDiv.style.display === 'block' && id === currentDownloadId) { // Check if still relevant
-            loadingMessageDiv.textContent = `⚠️ Status updates are taking longer than expected. The download might still be in progress. You may need to check back or try again if it doesn't complete.`;
-        }
-        return;
-      }
+		async function fetchDownloadStatus(id, attemptNo) {
+			const loadingMessageDiv = document.getElementById('loading-message');
+			// If this poll is not for the currently active download, abort.
+			if (id !== currentDownloadId) {
+					console.log(`Poll attempt ${attemptNo} for ${id} (scheduled) aborted; current download ID is now ${currentDownloadId}.`);
+					return;
+			}
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+			if (attemptNo >= MAX_POLL_ATTEMPTS) {
+				console.warn(`Max poll attempts reached for download ID ${id}. Stopping polling.`);
+				if (loadingMessageDiv.style.display === 'block' && id === currentDownloadId) { // Check if still relevant
+						loadingMessageDiv.textContent = `⚠️ Status updates are taking longer than expected. The download might still be in progress. You may need to check back or try again if it doesn't complete.`;
+				}
+				return;
+			}
 
-      try {
-        console.log(`Workspaceing status for ${id}, attempt ${attemptNo}...`);
-        const response = await fetch(`/log/${id}`, { signal: controller.signal });
-        clearTimeout(timeoutId)
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-        // Before updating UI or scheduling next, ensure the download ID hasn't changed during the await.
-        if (id !== currentDownloadId) {
-            console.log(`Workspace for ${id} (attempt ${attemptNo}) completed, but current ID changed to ${currentDownloadId}. Aborting further processing for ${id}.`);
-            return;
-        }
+			try {
+				console.log(`Workspaceing status for ${id}, attempt ${attemptNo}...`);
+				const response = await fetch(`/log/${id}`, { signal: controller.signal });
+				clearTimeout(timeoutId)
 
-        if (response.ok) {
-            const data = await response.json();
-            if (data && data.last_action) {
-                const currentFrame = animationFrames[attemptNo % animationFrames.length];
-                loadingMessageDiv.textContent = `${currentFrame} ${data.last_action}`;
-            }
-        } else {
-            // Log was not found or other error
-            if (response.status === 404 && id === currentDownloadId) {
-                console.log(`Log not found for current download ID ${id} (attempt ${attemptNo}). Clearing message and stopping polling for this ID.`);
-                loadingMessageDiv.textContent = '';
-                loadingMessageDiv.style.display = 'none';
-            } else {
-                console.error(`Error fetching status for ${id} (attempt ${attemptNo}): ${response.status} ${response.statusText}. It might be an old download ID or another issue.`);
-            }
-            return; // Stop polling for this ID if there was an error or log not found
+				// Before updating UI or scheduling next, ensure the download ID hasn't changed during the await.
+				if (id !== currentDownloadId) {
+						console.log(`Workspace for ${id} (attempt ${attemptNo}) completed, but current ID changed to ${currentDownloadId}. Aborting further processing for ${id}.`);
+						return;
+				}
 
-          }
-      } catch (error) { // Catches network errors and abort errors
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-          console.warn(`Workspace timed out for ${id} (attempt ${attemptNo}). Will retry if polling continues.`);
-          // Optionally update UI to indicate a temporary issue
-          // loadingMessageDiv.textContent = `⌛ Status update timed out, retrying...`;
-        } else {
-          console.error(`Error fetching status for ${id} (attempt ${attemptNo}):`, error);
-          // For other errors, we might want to stop polling or let it retry on the next cycle.
-        }
-      }
+				if (response.ok) {
+						const data = await response.json();
+						if (data && data.last_action) {
+								const currentFrame = animationFrames[attemptNo % animationFrames.length];
+								loadingMessageDiv.textContent = `${currentFrame} ${data.last_action}`;
+						}
+				} else {
+						// Log was not found or other error
+						if (response.status === 404 && id === currentDownloadId) {
+								console.log(`Log not found for current download ID ${id} (attempt ${attemptNo}). Clearing message and stopping polling for this ID.`);
+								loadingMessageDiv.textContent = '';
+								loadingMessageDiv.style.display = 'none';
+						} else {
+								console.error(`Error fetching status for ${id} (attempt ${attemptNo}): ${response.status} ${response.statusText}. It might be an old download ID or another issue.`);
+						}
+						return; // Stop polling for this ID if there was an error or log not found
 
-      // If still the active download, schedule the next poll.
-      if (id === currentDownloadId) {
-          setTimeout(() => {
-              fetchDownloadStatus(id, attemptNo + 1);
-          }, 500);
-      } else {
-          // This case handles if currentDownloadId changed right after fetch but before scheduling the next poll.
-          console.log(`Polling for ${id} (attempt ${attemptNo}) completed. Current download ID changed to ${currentDownloadId}. Next poll for ${id} not scheduled.`);
-      }
-    }
+					}
+			} catch (error) { // Catches network errors and abort errors
+				clearTimeout(timeoutId);
+				if (error.name === 'AbortError') {
+					console.warn(`Workspace timed out for ${id} (attempt ${attemptNo}). Will retry if polling continues.`);
+					// Optionally update UI to indicate a temporary issue
+					// loadingMessageDiv.textContent = `⌛ Status update timed out, retrying...`;
+				} else {
+					console.error(`Error fetching status for ${id} (attempt ${attemptNo}):`, error);
+					// For other errors, we might want to stop polling or let it retry on the next cycle.
+				}
+			}
+
+			// If still the active download, schedule the next poll.
+			if (id === currentDownloadId) {
+					setTimeout(() => {
+							fetchDownloadStatus(id, attemptNo + 1);
+					}, 500);
+			} else {
+					// This case handles if currentDownloadId changed right after fetch but before scheduling the next poll.
+					console.log(`Polling for ${id} (attempt ${attemptNo}) completed. Current download ID changed to ${currentDownloadId}. Next poll for ${id} not scheduled.`);
+			}
+		}
 
 
-    document.getElementById('download-form').addEventListener('submit', function() {
-      document.getElementById('loading-message').style.display = 'block';
-      document.getElementById('error-message').textContent = '';
-      // Generate and set the unique ID
-      currentDownloadId = generateUniqueId();
-      document.getElementById('download-id').value = currentDownloadId;
-      setTimeout(() => {
-              fetchDownloadStatus(currentDownloadId, 0);
-          }, 200);
-    });
-  </script>
+		document.getElementById('download-form').addEventListener('submit', function() {
+			document.getElementById('loading-message').style.display = 'block';
+			document.getElementById('error-message').textContent = '';
+			// Generate and set the unique ID
+			currentDownloadId = generateUniqueId();
+			document.getElementById('download-id').value = currentDownloadId;
+			setTimeout(() => {
+							fetchDownloadStatus(currentDownloadId, 0);
+					}, 200);
+		});
+	</script>
 </body>
 </html>

@@ -1,198 +1,202 @@
+# ytdl_pipe_merge.py
 import subprocess
 import sys
 import argparse
-import os # For path validation if needed
+import os
+from typing import List, Optional, IO # Added IO for stream type
 
-def download_video(url, video_format, audio_format, output_filename=None, cookie_file=None): # <-- ADDED cookie_file
-    """
-    Downloads a video from the given URL with specified video and audio formats.
-    Optionally uses a cookie file.
-    stderr from yt-dlp and ffmpeg will be printed directly to the console.
+# Define a type alias for process return codes for clarity
+ProcessReturnCode = Optional[int]
 
-    Args:
-        url (str): The URL of the video to download.
-        video_format (str): The desired video format string for yt-dlp.
-        audio_format (str): The desired audio format string for yt-dlp.
-        output_filename (str, optional): The name of the output file.
-                                         If None, output is streamed to stdout.
-        cookie_file (str, optional): Path to the cookie file for yt-dlp.
-    """
-    video_process = None
-    audio_process = None
-    ffmpeg_process = None
+def download_video(
+	url: str,
+	video_format: str,
+	audio_format: str,
+	output_container: str = "mp4",
+	output_filename: Optional[str] = None,
+	cookie_file: Optional[str] = None
+) -> None:
+	video_process: Optional[subprocess.Popen[bytes]] = None # Specify Popen generic type
+	audio_process: Optional[subprocess.Popen[bytes]] = None
+	ffmpeg_process: Optional[subprocess.Popen[bytes]] = None
 
-    video_returncode = None
-    audio_returncode = None
-    ffmpeg_returncode = None
+	video_returncode: ProcessReturnCode = None
+	audio_returncode: ProcessReturnCode = None
+	ffmpeg_returncode: ProcessReturnCode = None
 
-    try:
-        # --- Construct yt-dlp commands ---
-        base_yt_dlp_cmd = ["yt-dlp"]
-        if cookie_file:
-            # Basic validation: check if file exists, though yt-dlp will also error
-            if os.path.isfile(cookie_file): # You might want more robust path validation
-                base_yt_dlp_cmd.extend(["--cookies", cookie_file])
-            else:
-                print(f"Warning: Cookie file not found at {cookie_file}. Proceeding without cookies.", file=sys.stderr)
-        
-        video_dl_cmd = base_yt_dlp_cmd + ["--no-playlist", "-f", video_format, "-o", "-", "--", url]
-        audio_dl_cmd = base_yt_dlp_cmd + ["--no-playlist", "-f", audio_format, "-o", "-", "--", url]
-        
-        print(f"yt-dlp video command: {' '.join(video_dl_cmd)}", file=sys.stderr) # For debugging
-        print(f"yt-dlp audio command: {' '.join(audio_dl_cmd)}", file=sys.stderr) # For debugging
+	def _cleanup_process(
+		process: Optional[subprocess.Popen[bytes]],
+		process_name: str,
+		timeout_duration: int = 60
+	) -> ProcessReturnCode:
+		if not process:
+			return None
+		exit_code: ProcessReturnCode = None
+		try:
+			process.communicate(timeout=float(timeout_duration))
+			exit_code = process.returncode
+		except subprocess.TimeoutExpired:
+			print(f"ytdl_pipe_merge.py: {process_name} timed out. Killing...", file=sys.stderr)
+			process.kill()
+			try:
+				process.communicate(timeout=10.0)
+			except Exception as e_post_kill:
+				print(f"ytdl_pipe_merge.py: Error post-kill communicate for {process_name}: {e_post_kill}", file=sys.stderr)
+			exit_code = process.returncode
+		except Exception as e_comm:
+			print(f"ytdl_pipe_merge.py: Error communicate() for {process_name}: {e_comm}", file=sys.stderr)
+			if process.poll() is not None:
+				exit_code = process.returncode
+			else:
+				print(f"ytdl_pipe_merge.py: {process_name} state uncertain. Attempting kill.", file=sys.stderr)
+				process.kill()
+				try:
+					process.wait(timeout=10.0)
+				except subprocess.TimeoutExpired:
+					print(f"ytdl_pipe_merge.py: {process_name} did not terminate post-kill.", file=sys.stderr)
+				except Exception as e_wait_kill:
+					print(f"ytdl_pipe_merge.py: Error wait after kill for {process_name}: {e_wait_kill}", file=sys.stderr)
+				exit_code = process.returncode if process.poll() is not None else -1
+		if exit_code is None:
+			print(f"ytdl_pipe_merge.py: Warning: Could not determine exit code for {process_name}. Polling.", file=sys.stderr)
+			exit_code = process.poll()
+			if exit_code is None:
+				print(f"ytdl_pipe_merge.py: Warning: {process_name} status unknown. Assuming error (-1).", file=sys.stderr)
+				exit_code = -1
+		if exit_code != 0:
+			print(f"ytdl_pipe_merge.py: {process_name} exited with error (code {exit_code}).", file=sys.stderr)
+		return exit_code
 
-        video_process = subprocess.Popen(
-            video_dl_cmd,
-            stdout=subprocess.PIPE,
-        )
-        audio_process = subprocess.Popen(
-            audio_dl_cmd,
-            stdout=subprocess.PIPE,
-        )
-        
-        if not video_process.stdout:
-            raise IOError("yt-dlp video process stdout pipe not created.")
-        if not audio_process.stdout:
-            raise IOError("yt-dlp audio process stdout pipe not created.")
+	try:
+		base_yt_dlp_cmd: List[str] = ["yt-dlp"]
+		if cookie_file:
+			if os.path.isfile(cookie_file):
+				base_yt_dlp_cmd.extend(["--cookies", cookie_file])
+			else:
+				print(f"Warning (ytdl_pipe_merge.py): Cookie file {cookie_file} not found.", file=sys.stderr)
+		
+		video_dl_cmd: List[str] = base_yt_dlp_cmd + ["--no-playlist", "-f", video_format, "-o", "-", "--", url]
+		audio_dl_cmd: List[str] = base_yt_dlp_cmd + ["--no-playlist", "-f", audio_format, "-o", "-", "--", url]
+		
+		print(f"ytdl_pipe_merge.py: yt-dlp video: {' '.join(video_dl_cmd)}", file=sys.stderr)
+		print(f"ytdl_pipe_merge.py: yt-dlp audio: {' '.join(audio_dl_cmd)}", file=sys.stderr)
 
-        ffmpeg_command = [
-            "ffmpeg",
-            "-hide_banner", "-y",
-            "-i", "pipe:3",
-            "-i", "pipe:4",
-            "-map", "0:v",
-            "-map", "1:a",
-            "-c:v", "copy",
-            "-c:a", "copy",
-            "-f", "matroska",
-        ]
+		video_process = subprocess.Popen(video_dl_cmd, stdout=subprocess.PIPE, stderr=sys.stderr)
+		audio_process = subprocess.Popen(audio_dl_cmd, stdout=subprocess.PIPE, stderr=sys.stderr)
+		
+		if video_process.stdout is None: # More explicit check
+			raise IOError("yt-dlp video process stdout pipe not created.")
+		if audio_process.stdout is None: # More explicit check
+			raise IOError("yt-dlp audio process stdout pipe not created.")
 
-        ffmpeg_stdout_target = None
-        if output_filename:
-            ffmpeg_command.append(output_filename)
-        else:
-            ffmpeg_command.append("pipe:1")
-            ffmpeg_stdout_target = subprocess.PIPE
+		ffmpeg_command: List[str] = [
+			"ffmpeg", "-hide_banner", "-y",
+			"-i", "pipe:3", "-i", "pipe:4",
+			"-map", "0:v", "-map", "1:a",
+			"-c:v", "copy", "-c:a", "copy",
+		]
 
-        ffmpeg_process = subprocess.Popen(
-            ffmpeg_command,
-            pass_fds=(video_process.stdout.fileno(), audio_process.stdout.fileno()),
-            stdin=subprocess.PIPE,
-            stdout=ffmpeg_stdout_target,
-        )
+		if output_container == "mp4":
+			ffmpeg_command.extend(["-movflags", "frag_keyframe+empty_moov+faststart", "-f", "mp4"])
+		elif output_container == "mkv":
+			ffmpeg_command.extend(["-f", "matroska"])
+		else:
+			print(f"ytdl_pipe_merge.py: Error: Unsupported container '{output_container}'. Defaulting to mkv.", file=sys.stderr)
+			ffmpeg_command.extend(["-f", "matroska"])
 
-        video_process.stdout.close()
-        audio_process.stdout.close()
+		ffmpeg_stdout_target: Optional[int] = None
+		if output_filename:
+			ffmpeg_command.append(output_filename)
+		else:
+			ffmpeg_command.append("pipe:1")
+			ffmpeg_stdout_target = subprocess.PIPE 
 
-        if not output_filename and ffmpeg_process and ffmpeg_process.stdout:
-            try:
-                for chunk in iter(lambda: ffmpeg_process.stdout.read(4096), b""):
-                    sys.stdout.buffer.write(chunk)
-                    sys.stdout.buffer.flush()
-            except Exception as e:
-                print(f"Error streaming ffmpeg output: {e}", file=sys.stderr)
-                if ffmpeg_process.poll() is None:
-                    ffmpeg_process.terminate()
-            finally:
-                 if ffmpeg_process.stdout:
-                    ffmpeg_process.stdout.close()
-    except Exception as e:
-        print(f"An unexpected error occurred during setup or initial execution: {e}", file=sys.stderr)
-        if video_process and video_process.poll() is None: video_process.kill()
-        if audio_process and audio_process.poll() is None: audio_process.kill()
-        if ffmpeg_process and ffmpeg_process.poll() is None: ffmpeg_process.kill()
-        sys.exit(1)
-    finally:
-        if ffmpeg_process:
-            try:
-                _ = ffmpeg_process.communicate(timeout=120) 
-            except subprocess.TimeoutExpired:
-                print("ffmpeg process timed out during cleanup. Killing...", file=sys.stderr)
-                ffmpeg_process.kill()
-                ffmpeg_process.communicate()
-            except Exception as e:
-                 print(f"Error during ffmpeg_process.communicate(): {e}", file=sys.stderr)
-            ffmpeg_returncode = ffmpeg_process.returncode
-            if ffmpeg_returncode != 0:
-                print(f"ffmpeg exited with error (code {ffmpeg_returncode}). Check console for ffmpeg's error messages.", file=sys.stderr)
+		print(f"ytdl_pipe_merge.py: ffmpeg: {' '.join(ffmpeg_command)}", file=sys.stderr)
 
-        if video_process:
-            try:
-                video_process.communicate(timeout=60)
-            except subprocess.TimeoutExpired:
-                print("yt-dlp (video) process timed out during cleanup. Killing...", file=sys.stderr)
-                video_process.kill()
-                video_process.communicate()
-            except Exception as e:
-                 print(f"Error during video_process.communicate(): {e}", file=sys.stderr)
-            video_returncode = video_process.returncode
-            if video_returncode != 0:
-                print(f"yt-dlp (video) exited with error (code {video_returncode}). Check console for yt-dlp's error messages.", file=sys.stderr)
+		video_fd: int = video_process.stdout.fileno()
+		audio_fd: int = audio_process.stdout.fileno()
 
-        if audio_process:
-            try:
-                audio_process.communicate(timeout=60)
-            except subprocess.TimeoutExpired:
-                print("yt-dlp (audio) process timed out during cleanup. Killing...", file=sys.stderr)
-                audio_process.kill()
-                audio_process.communicate()
-            except Exception as e:
-                 print(f"Error during audio_process.communicate(): {e}", file=sys.stderr)
-            audio_returncode = audio_process.returncode
-            if audio_returncode != 0:
-                print(f"yt-dlp (audio) exited with error (code {audio_returncode}). Check console for yt-dlp's error messages.", file=sys.stderr)
-        
-        all_attempted_and_ok = (video_process is not None and video_returncode == 0 and
-                                audio_process is not None and audio_returncode == 0 and
-                                ffmpeg_process is not None and ffmpeg_returncode == 0)
-        
-        any_process_started = video_process or audio_process or ffmpeg_process
+		ffmpeg_process = subprocess.Popen(
+			ffmpeg_command,
+			pass_fds=(video_fd, audio_fd),
+			stdin=subprocess.PIPE, 
+			stdout=ffmpeg_stdout_target,
+			stderr=sys.stderr
+		)
 
-        if all_attempted_and_ok:
-            if output_filename:
-                print(f"Video successfully downloaded and saved to {output_filename}")
-            else:
-                print("Stream successfully completed to stdout.", file=sys.stderr)
-        elif any_process_started:
-            print("Download failed or one or more steps had errors. Check console for messages from yt-dlp/ffmpeg.", file=sys.stderr)
-            if not sys.exc_info()[0]:
-                sys.exit(1)
+		video_process.stdout.close() # Close parent's end of the pipe
+		audio_process.stdout.close() # Close parent's end of the pipe
 
+		if not output_filename and ffmpeg_process:
+			stdout_pipe: Optional[IO[bytes]] = ffmpeg_process.stdout # Capture for type narrowing
+			
+			if stdout_pipe is not None: 
+				try:
+					for chunk in iter(lambda: stdout_pipe.read(4096), b""):
+						sys.stdout.buffer.write(chunk)
+						sys.stdout.buffer.flush()
+				except Exception as e:
+					print(f"ytdl_pipe_merge.py: Error streaming ffmpeg output: {e}", file=sys.stderr)
+					if ffmpeg_process.poll() is None:
+						ffmpeg_process.terminate()
+				finally:
+					stdout_pipe.close() # stdout_pipe is known non-None here
+			else:
+				# This path should ideally not be hit if not output_filename is true
+				print("ytdl_pipe_merge.py: Critical: ffmpeg stdout is None when streaming was expected.", file=sys.stderr)
+				if ffmpeg_process.poll() is None: # Check if ffmpeg is running to terminate
+					ffmpeg_process.terminate()
+
+
+	except Exception as e:
+		print(f"ytdl_pipe_merge.py: An unexpected error occurred: {e}", file=sys.stderr)
+		if video_process and video_process.poll() is None: video_process.kill()
+		if audio_process and audio_process.poll() is None: audio_process.kill()
+		if ffmpeg_process and ffmpeg_process.poll() is None: ffmpeg_process.kill()
+		sys.exit(1) 
+	finally:
+		if ffmpeg_process:
+			ffmpeg_returncode = _cleanup_process(ffmpeg_process, "ffmpeg", timeout_duration=120)
+		if audio_process: 
+			audio_returncode = _cleanup_process(audio_process, "yt-dlp audio", timeout_duration=60)
+		if video_process: 
+			video_returncode = _cleanup_process(video_process, "yt-dlp video", timeout_duration=60)
+		
+		all_ok = (
+			(video_process is not None and video_returncode == 0) and
+			(audio_process is not None and audio_returncode == 0) and
+			(ffmpeg_process is not None and ffmpeg_returncode == 0)
+		)
+		any_launched = video_process or audio_process or ffmpeg_process
+
+		if all_ok:
+			status_message = f"processed to {output_filename}" if output_filename else "streamed to stdout"
+			print(f"ytdl_pipe_merge.py: Success: Video {status_message}.", file=sys.stderr)
+		elif any_launched:
+			print("ytdl_pipe_merge.py: Failure: Download/merge had errors. Review logs.", file=sys.stderr)
+			if not sys.exc_info()[0]: sys.exit(1)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Download and merge video and audio streams from a given URL using yt-dlp and ffmpeg.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument("url", help="The URL of the video to download.")
-    parser.add_argument(
-        "-vf", "--video_format",
-        default="bestvideo[ext=webm]",
-        help="The video format string for yt-dlp." # (details omitted for brevity)
-    )
-    parser.add_argument(
-        "-af", "--audio_format",
-        default="bestaudio[ext=webm]",
-        help="The audio format string for yt-dlp." # (details omitted for brevity)
-    )
-    parser.add_argument(
-        "-o", "--output",
-        default=None,
-        help="Output filename (e.g., my_video.webm)." # (details omitted for brevity)
-    )
-    # --- ADDED: Argument for cookie file ---
-    parser.add_argument(
-        "--cookie_file",
-        default=None,
-        help="Path to a Netscape format cookie file to use with yt-dlp."
-    )
-    # ---
+	parser = argparse.ArgumentParser(
+		description="Download & merge video/audio using yt-dlp & ffmpeg to fMP4 or MKV.",
+		formatter_class=argparse.RawTextHelpFormatter
+	)
+	parser.add_argument("url", help="Video URL.")
+	parser.add_argument("-vf", "--video_format", default="bestvideo[ext=webm]/bestvideo[ext=mp4]/bestvideo", help="yt-dlp video format.")
+	parser.add_argument("-af", "--audio_format", default="bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio", help="yt-dlp audio format.")
+	parser.add_argument("-o", "--output", default=None, help="Output filename (e.g., video.mp4). Streams to stdout if not set.")
+	parser.add_argument("--cookie_file", default=None, help="Path to Netscape cookie file for yt-dlp.")
+	parser.add_argument("-c", "--container", default="mkv", choices=["mp4", "mkv"], help="Output container: 'mp4' or 'mkv'. Default: 'mkv'.")
 
-    args = parser.parse_args()
+	args = parser.parse_args()
 
-    if not args.url.startswith("http://") and not args.url.startswith("https://"):
-        print("Error: Invalid URL provided. It should start with http:// or https://", file=sys.stderr)
-        sys.exit(1)
+	if not args.url.startswith(("http://", "https://")): # Simpler check for multiple prefixes
+		print("ytdl_pipe_merge.py: Error: URL must start with http:// or https://", file=sys.stderr)
+		sys.exit(1)
 
-    # Pass the cookie_file argument to the download_video function
-    download_video(args.url, args.video_format, args.audio_format, args.output, args.cookie_file)
+	download_video(
+		args.url, args.video_format, args.audio_format,
+		output_container=args.container,
+		output_filename=args.output,
+		cookie_file=args.cookie_file
+	)
